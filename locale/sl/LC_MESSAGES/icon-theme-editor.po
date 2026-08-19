@@ -1,0 +1,286 @@
+# Slovenian translations for icon-theme-editor
+msgid ""
+msgstr ""
+"Project-Id-Version: icon-theme-editor 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: Slovenian\n"
+"Language: sl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n%100==1 ? 0 : n%100==2 ? 1 : n%100==3 || n%100==4 ? 2 : 3);\n"
+
+#: Window
+msgid "Icon Theme Editor - DisplayName"
+msgstr "Urejevalnik tem ikon - DisplayName"
+
+#: Buttons
+msgid "Refresh"
+msgstr "Osveži"
+
+msgid "Save"
+msgstr "Shrani"
+
+msgid "Reset"
+msgstr "Ponastavi"
+
+msgid "Coordinates..."
+msgstr "Koordinate..."
+
+msgid "Open in Editor"
+msgstr "Odpri v urejevalniku"
+
+msgid "Delete"
+msgstr "Izbriši"
+
+msgid "File ↔ Symlink"
+msgstr "Datoteka ↔ Simbolna povezava"
+
+msgid "Symlink → File"
+msgstr "Simbolna povezava → Datoteka"
+
+msgid "File → Symlink"
+msgstr "Datoteka → Simbolna povezava"
+
+#: Labels
+msgid "Filter:"
+msgstr "Filter:"
+
+msgid "Enter text to filter..."
+msgstr "Vnesite besedilo za filtriranje..."
+
+msgid "<b>Selected Icon:</b>"
+msgstr "<b>Izbrana ikona:</b>"
+
+msgid "<b>DisplayName:</b>"
+msgstr "<b>DisplayName:</b>"
+
+msgid "<b>Icon Files:</b>"
+msgstr "<b>Datoteke ikone:</b>"
+
+msgid "Symlink target:"
+msgstr "Cilj simbolne povezave:"
+
+#: Column headers
+msgid "Icons"
+msgstr "Ikone"
+
+msgid "Context"
+msgstr "Kontekst"
+
+msgid "Status"
+msgstr "Stanje"
+
+msgid "File"
+msgstr "Datoteka"
+
+msgid "Target"
+msgstr "Cilj"
+
+#: Status messages
+msgid "OK"
+msgstr "V redu"
+
+msgid "Multiple contexts"
+msgstr "Različni konteksti"
+
+msgid "Different DisplayName"
+msgstr "Različna DisplayName"
+
+msgid "Different symlink targets"
+msgstr "Različni cilji simbolnih povezav"
+
+msgid "Symlinks only"
+msgstr "Samo simbolne povezave"
+
+msgid "Has symlinks"
+msgstr "Ima simbolne povezave"
+
+msgid "Multiple"
+msgstr "Več"
+
+msgid "None"
+msgstr "Brez"
+
+#: Warning messages
+msgid "Icon has different contexts!"
+msgstr "Ikona ima različne kontekste!"
+
+msgid "DisplayName differs between files!"
+msgstr "DisplayName se razlikuje med datotekami!"
+
+#: File types
+msgid "(file)"
+msgstr "(datoteka)"
+
+#: Dialog messages
+msgid "Convert to symlink?"
+msgstr "Pretvori v simbolno povezavo?"
+
+msgid "Convert to file?"
+msgstr "Pretvori v datoteko?"
+
+msgid "File \"%s\" will be replaced with a symlink. Original file will be deleted."
+msgstr "Datoteka \"%s\" bo nadomeščena s simbolno povezavo. Izvirna datoteka bo izbrisana."
+
+msgid "Symlink \"%s\" will be replaced with a copy of the file."
+msgstr "Simbolna povezava \"%s\" bo nadomeščena s kopijo datoteke."
+
+msgid "Delete %s?"
+msgstr "Izbriši %s?"
+
+msgid "Will delete %s \"%s\". This cannot be undone."
+msgstr "Izbrisan bo %s \"%s\". Tega dejanja ni mogoče razveljaviti."
+
+#: Dialog messages (new, unique)
+msgid "Convert to symlink"
+msgstr "Pretvori v simbolno povezavo"
+
+msgid "File \"%s\" will be replaced with a symlink. Enter the target path:"
+msgstr "Datoteka \"%s\" bo nadomeščena s simbolno povezavo. Vnesite pot do cilja:"
+
+#: Dialog buttons (new, unique)
+msgid "Cancel"
+msgstr "Prekliči"
+
+#: Symlink status tooltips (new, unique)
+msgid "Enter a target path"
+msgstr "Vnesite pot do cilja"
+
+msgid "Target is a symlink (indirect reference)"
+msgstr "Cilj je simbolna povezava (posredna referenca)"
+
+msgid "No changes to save"
+msgstr "Ni sprememb za shranjevanje"
+
+msgid "Saved successfully"
+msgstr "Uspešno shranjeno"
+
+msgid "Enter target path..."
+msgstr "Vnesite pot do cilja..."
+
+#: Error messages
+msgid "Theme file does not exist"
+msgstr "Datoteka teme ne obstaja"
+
+msgid "Directory does not contain index.theme"
+msgstr "Mapa ne vsebuje index.theme"
+
+msgid "Invalid theme file"
+msgstr "Neveljavna datoteka teme"
+
+msgid "Error loading theme"
+msgstr "Napaka pri nalaganju teme"
+
+msgid "Could not read index.theme"
+msgstr "Ni mogoče prebrati index.theme"
+
+msgid "Error scanning"
+msgstr "Napaka pri skeniranju"
+
+msgid "Symlink target not found"
+msgstr "Cilj simbolne povezave ni najden"
+
+msgid "Target file does not exist"
+msgstr "Ciljna datoteka ne obstaja"
+
+msgid "Could not open image"
+msgstr "Ni mogoče odpreti slike"
+
+msgid "File does not exist"
+msgstr "Datoteka ne obstaja"
+
+msgid "Error deleting file"
+msgstr "Napaka pri brisanju datoteke"
+
+msgid "Error saving symlink"
+msgstr "Napaka pri shranjevanju simbolne povezave"
+
+msgid "Save error"
+msgstr "Napaka pri shranjevanju"
+
+msgid "Symlink target cannot be empty"
+msgstr "Cilj simbolne povezave ne sme biti prazen"
+
+msgid "Target not specified"
+msgstr "Cilj ni določen"
+
+msgid "Target is symlink"
+msgstr "Cilj je simbolna povezava"
+
+msgid "File exists"
+msgstr "Datoteka obstaja"
+
+msgid "Unknown file type"
+msgstr "Neznana vrsta datoteke"
+
+msgid "Error checking file"
+msgstr "Napaka pri preverjanju datoteke"
+
+msgid "Symlink target updated"
+msgstr "Cilj simbolne povezave posodobljen"
+
+#: Status
+msgid "Loaded %d icons"
+msgstr "Naloženih ikon: %d"
+
+msgid "File converted to symlink: %s → %s"
+msgstr "Datoteka pretvorjena v simbolno povezavo: %s → %s"
+
+msgid "Symlink converted to file: %s"
+msgstr "Simbolna povezava pretvorjena v datoteko: %s"
+
+msgid "Deleted %s: %s"
+msgstr "Izbrisan %s: %s"
+
+msgid "DisplayName saved in %d files"
+msgstr "DisplayName shranjen v %d datotekah"
+
+#: File preview
+msgid "File:"
+msgstr "Datoteka:"
+
+msgid "Type:"
+msgstr "Vrsta:"
+
+msgid "Dimensions:"
+msgstr "Dimenzije:"
+
+msgid "File size:"
+msgstr "Velikost datoteke:"
+
+msgid "Modified:"
+msgstr "Spremenjeno:"
+
+msgid "Symbolic link"
+msgstr "Simbolna povezava"
+
+msgid "(does not exist)"
+msgstr "(ne obstaja)"
+
+msgid "(exists)"
+msgstr "(obstaja)"
+
+msgid "Could not open file manager"
+msgstr "Ni mogoče odpreti upravitelja datotek"
+
+msgid "Could not open directory"
+msgstr "Ni mogoče odpreti mape"
+
+msgid "Error opening file manager"
+msgstr "Napaka pri odpiranju upravitelja datotek"
+
+msgid "Load error"
+msgstr "Napaka pri nalaganju"
+
+msgid "Could not get dimensions"
+msgstr "Ni mogoče pridobiti dimenzij"
+
+msgid "Error converting to symlink: %s"
+msgstr "Napaka pri pretvorbi v simbolno povezavo: %s"
+
+msgid "Error converting to file: %s"
+msgstr "Napaka pri pretvorbi v datoteko: %s"

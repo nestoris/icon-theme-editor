@@ -1,0 +1,286 @@
+# Russian translations for icon-theme-editor
+msgid ""
+msgstr ""
+"Project-Id-Version: icon-theme-editor 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#: Window
+msgid "Icon Theme Editor - DisplayName"
+msgstr "Редактор тем значков - DisplayName"
+
+#: Buttons
+msgid "Refresh"
+msgstr "Обновить"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Reset"
+msgstr "Сброс"
+
+msgid "Coordinates..."
+msgstr "Координаты..."
+
+msgid "Open in Editor"
+msgstr "Открыть в редакторе"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "File ↔ Symlink"
+msgstr "Файл ↔ Симлинк"
+
+msgid "Symlink → File"
+msgstr "Симлинк → Файл"
+
+msgid "File → Symlink"
+msgstr "Файл → Симлинк"
+
+#: Labels
+msgid "Filter:"
+msgstr "Фильтр:"
+
+msgid "Enter text to filter..."
+msgstr "Введите текст для фильтрации..."
+
+msgid "<b>Selected Icon:</b>"
+msgstr "<b>Выбранный значок:</b>"
+
+msgid "<b>DisplayName:</b>"
+msgstr "<b>DisplayName:</b>"
+
+msgid "<b>Icon Files:</b>"
+msgstr "<b>Файлы значка:</b>"
+
+msgid "Symlink target:"
+msgstr "Цель симлинка:"
+
+#: Column headers
+msgid "Icons"
+msgstr "Значки"
+
+msgid "Context"
+msgstr "Контекст"
+
+msgid "Status"
+msgstr "Статус"
+
+msgid "File"
+msgstr "Файл"
+
+msgid "Target"
+msgstr "Цель"
+
+#: Status messages
+msgid "OK"
+msgstr "ОК"
+
+msgid "Multiple contexts"
+msgstr "Разные контексты"
+
+msgid "Different DisplayName"
+msgstr "Разные DisplayName"
+
+msgid "Different symlink targets"
+msgstr "Разные цели симлинков"
+
+msgid "Symlinks only"
+msgstr "Только симлинки"
+
+msgid "Has symlinks"
+msgstr "Есть симлинки"
+
+msgid "Multiple"
+msgstr "Несколько"
+
+msgid "None"
+msgstr "Нет"
+
+#: Warning messages
+msgid "Icon has different contexts!"
+msgstr "Значок находится в разных контекстах!"
+
+msgid "DisplayName differs between files!"
+msgstr "DisplayName различается между файлами!"
+
+#: File types
+msgid "(file)"
+msgstr "(файл)"
+
+#: Dialog messages
+msgid "Convert to symlink?"
+msgstr "Преобразовать в симлинк?"
+
+msgid "Convert to file?"
+msgstr "Преобразовать в файл?"
+
+msgid "File \"%s\" will be replaced with a symlink. Original file will be deleted."
+msgstr "Файл \"%s\" будет заменен на симлинк. Исходный файл будет удален."
+
+msgid "Symlink \"%s\" will be replaced with a copy of the file."
+msgstr "Симлинк \"%s\" будет заменен на копию файла."
+
+msgid "Delete %s?"
+msgstr "Удалить %s?"
+
+msgid "Will delete %s \"%s\". This cannot be undone."
+msgstr "Будет удален %s \"%s\". Это действие нельзя отменить."
+
+#: Dialog messages (new, unique)
+msgid "Convert to symlink"
+msgstr "Преобразовать в симлинк"
+
+msgid "File \"%s\" will be replaced with a symlink. Enter the target path:"
+msgstr "Файл \"%s\" будет заменен на симлинк. Введите путь к цели:"
+
+#: Dialog buttons (new, unique)
+msgid "Cancel"
+msgstr "Отмена"
+
+#: Symlink status tooltips (new, unique)
+msgid "Enter a target path"
+msgstr "Введите путь к цели"
+
+msgid "Target is a symlink (indirect reference)"
+msgstr "Цель является симлинком (косвенная ссылка)"
+
+msgid "No changes to save"
+msgstr "Нет изменений для сохранения"
+
+msgid "Saved successfully"
+msgstr "Успешно сохранено"
+
+msgid "Enter target path..."
+msgstr "Введите путь к цели..."
+
+#: Error messages
+msgid "Theme file does not exist"
+msgstr "Файл темы не существует"
+
+msgid "Directory does not contain index.theme"
+msgstr "Директория не содержит index.theme"
+
+msgid "Invalid theme file"
+msgstr "Неверный файл темы"
+
+msgid "Error loading theme"
+msgstr "Ошибка загрузки темы"
+
+msgid "Could not read index.theme"
+msgstr "Не удалось прочитать index.theme"
+
+msgid "Error scanning"
+msgstr "Ошибка сканирования"
+
+msgid "Symlink target not found"
+msgstr "Не найдена цель симлинка"
+
+msgid "Target file does not exist"
+msgstr "Целевой файл не существует"
+
+msgid "Could not open image"
+msgstr "Не удалось открыть изображение"
+
+msgid "File does not exist"
+msgstr "Файл не существует"
+
+msgid "Error deleting file"
+msgstr "Ошибка при удалении файла"
+
+msgid "Error saving symlink"
+msgstr "Ошибка сохранения симлинка"
+
+msgid "Save error"
+msgstr "Ошибка сохранения"
+
+msgid "Symlink target cannot be empty"
+msgstr "Цель симлинка не может быть пустой"
+
+msgid "Target not specified"
+msgstr "Цель не указана"
+
+msgid "Target is symlink"
+msgstr "Цель является симлинком"
+
+msgid "File exists"
+msgstr "Файл существует"
+
+msgid "Unknown file type"
+msgstr "Неизвестный тип файла"
+
+msgid "Error checking file"
+msgstr "Ошибка проверки файла"
+
+msgid "Symlink target updated"
+msgstr "Цель симлинка обновлена"
+
+#: Status
+msgid "Loaded %d icons"
+msgstr "Загружено значков: %d"
+
+msgid "File converted to symlink: %s → %s"
+msgstr "Файл преобразован в симлинк: %s → %s"
+
+msgid "Symlink converted to file: %s"
+msgstr "Симлинк преобразован в файл: %s"
+
+msgid "Deleted %s: %s"
+msgstr "Удален %s: %s"
+
+msgid "DisplayName saved in %d files"
+msgstr "DisplayName сохранен в %d файлах"
+
+#: File preview
+msgid "File:"
+msgstr "Файл:"
+
+msgid "Type:"
+msgstr "Тип:"
+
+msgid "Dimensions:"
+msgstr "Размеры:"
+
+msgid "File size:"
+msgstr "Размер файла:"
+
+msgid "Modified:"
+msgstr "Изменен:"
+
+msgid "Symbolic link"
+msgstr "Символическая ссылка"
+
+msgid "(does not exist)"
+msgstr "(не существует)"
+
+msgid "(exists)"
+msgstr "(существует)"
+
+msgid "Could not open file manager"
+msgstr "Не удалось открыть файловый менеджер"
+
+msgid "Could not open directory"
+msgstr "Не удалось открыть директорию"
+
+msgid "Error opening file manager"
+msgstr "Ошибка при открытии файлового менеджера"
+
+msgid "Load error"
+msgstr "Ошибка загрузки"
+
+msgid "Could not get dimensions"
+msgstr "Не удалось получить размеры"
+
+msgid "Error converting to symlink: %s"
+msgstr "Ошибка преобразования в симлинк: %s"
+
+msgid "Error converting to file: %s"
+msgstr "Ошибка преобразования в файл: %s"
