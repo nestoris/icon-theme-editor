@@ -9,7 +9,7 @@ git clone https://github.com/nestoris/icon-theme-editor.git
 **Usage:**
 ```
 cd icon-theme-editor
-gjs icon-theme-editor /path/to/your/theme/index.theme
+gjs icon-theme-editor.js /path/to/your/theme/index.theme
 ```
 
 **Requirements:**
