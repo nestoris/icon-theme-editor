@@ -56,18 +56,18 @@ constructor(themePath) {
 	// ==================== СОЗДАНИЕ ИНТЕРФЕЙСА ====================
 	createUI() {
 		this.window = new Gtk.Window({
-			title: _('Icon Theme Editor - DisplayName'),
-			default_width: 1000,
-			default_height: 800,
-			window_position: Gtk.WindowPosition.CENTER
+				title: _('Icon Theme Editor - DisplayName'),
+				default_width: 970,
+				default_height: 600,
+				window_position: Gtk.WindowPosition.CENTER
 		});
-		
+
 		this.window.connect('destroy', () => Gtk.main_quit());
 
 		let mainBox = new Gtk.Box({
 			orientation: Gtk.Orientation.VERTICAL,
-			spacing: 10,
-			margin: 10
+			spacing: 3,
+			margin: 3
 		});
 
 		let topBox = new Gtk.Box({
@@ -110,11 +110,11 @@ constructor(themePath) {
 		let leftPane = new Gtk.Box({
 			orientation: Gtk.Orientation.VERTICAL,
 			spacing: 5,
-			width_request: 400
+			width_request: 180
 		});
 
 		let listScrolled = new Gtk.ScrolledWindow();
-		listScrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
+		listScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
 		
 		this.listStore = new Gtk.ListStore();
 		this.listStore.set_column_types([GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING]);
@@ -130,8 +130,12 @@ constructor(themePath) {
 		nameColumn.add_attribute(nameRenderer, 'text', 0);
 		nameColumn.add_attribute(nameRenderer, 'foreground', 1);
 		nameColumn.set_sort_column_id(0);
+		nameColumn.set_min_width(80);
+		nameColumn.set_expand(true);        // забирает свободное место
+		nameColumn.set_resizable(true);     // можно тянуть границу
+		nameRenderer.set_property('ellipsize', 3);
 		nameColumn.connect('clicked', () => {
-			this.listStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);
+				this.listStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);
 		});
 		this.treeView.append_column(nameColumn);
 		
@@ -139,8 +143,16 @@ constructor(themePath) {
 		let contextColumn = new Gtk.TreeViewColumn({ title: _('Context') });
 		contextColumn.pack_start(contextRenderer, true);
 		contextColumn.add_attribute(contextRenderer, 'text', 3);
-		contextColumn.set_min_width(100);
+		contextColumn.set_min_width(110);    // хватает для "International"/"Applications"
 		contextColumn.set_sort_column_id(3);
+		contextColumn.set_expand(false);     // не растягивается
+		contextColumn.set_resizable(true);   // можно тянуть
+		contextRenderer.set_property('ellipsize', 3);
+		contextColumn.connect('clicked', () => {
+				this.listStore.set_sort_column_id(3, Gtk.SortType.ASCENDING);
+		});
+		this.treeView.append_column(contextColumn);
+
 		contextColumn.connect('clicked', () => {
 			this.listStore.set_sort_column_id(3, Gtk.SortType.ASCENDING);
 		});
@@ -150,10 +162,13 @@ constructor(themePath) {
 		let reasonColumn = new Gtk.TreeViewColumn({ title: _('Status') });
 		reasonColumn.pack_start(reasonRenderer, true);
 		reasonColumn.add_attribute(reasonRenderer, 'text', 2);
-		reasonColumn.set_min_width(150);
+		reasonColumn.set_min_width(100);
 		reasonColumn.set_sort_column_id(2);
+		reasonColumn.set_expand(false);
+		reasonColumn.set_resizable(true);
+		reasonRenderer.set_property('ellipsize', 3);
 		reasonColumn.connect('clicked', () => {
-			this.listStore.set_sort_column_id(2, Gtk.SortType.ASCENDING);
+				this.listStore.set_sort_column_id(2, Gtk.SortType.ASCENDING);
 		});
 		this.treeView.append_column(reasonColumn);
 		
@@ -162,12 +177,13 @@ constructor(themePath) {
 		
 		leftPane.pack_start(listScrolled, true, true, 0);
 		
-		contentBox.pack_start(leftPane, false, false, 0);
+		contentBox.pack_start(leftPane, true, true, 0);
 
 		let editorBox = new Gtk.Box({
 			orientation: Gtk.Orientation.VERTICAL,
 			spacing: 10,
-			hexpand: true
+			hexpand: false,
+			width_request: 500
 		});
 
 		let nameBox = new Gtk.Box({
@@ -254,7 +270,7 @@ constructor(themePath) {
 			orientation: Gtk.Orientation.HORIZONTAL,
 			spacing: 10
 		});
-		contextsPreviewBox.set_size_request(-1, 300);
+		contextsPreviewBox.set_size_request(-1, 50);
 
 		let filesScrolled = new Gtk.ScrolledWindow();
 		filesScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
@@ -270,13 +286,21 @@ constructor(themePath) {
 		let filePathColumn = new Gtk.TreeViewColumn({ title: _('File') });
 		filePathColumn.pack_start(filePathRenderer, true);
 		filePathColumn.add_attribute(filePathRenderer, 'text', 0);
+		filePathColumn.set_min_width(120);
+		filePathColumn.set_expand(true);
+		filePathColumn.set_resizable(true);
+		filePathRenderer.set_property('ellipsize', 3);
 		this.filesTreeView.append_column(filePathColumn);
-		
+
 		let fileTargetRenderer = new Gtk.CellRendererText();
 		let fileTargetColumn = new Gtk.TreeViewColumn({ title: _('Target') });
 		fileTargetColumn.pack_start(fileTargetRenderer, true);
 		fileTargetColumn.add_attribute(fileTargetRenderer, 'text', 1);
 		fileTargetColumn.add_attribute(fileTargetRenderer, 'foreground', 2);
+		fileTargetColumn.set_min_width(100);
+		fileTargetColumn.set_expand(false);
+		fileTargetColumn.set_resizable(true);
+		fileTargetRenderer.set_property('ellipsize', 3);
 		this.filesTreeView.append_column(fileTargetColumn);
 		
 		this.filesTreeView.connect('cursor-changed', this.onFileSelected.bind(this));
@@ -286,12 +310,12 @@ constructor(themePath) {
 
 		let previewControlBox = new Gtk.Box({
 			orientation: Gtk.Orientation.VERTICAL,
-			spacing: 10,
-			width_request: 200
+			spacing: 3,
+			width_request: 120
 		});
 
 		this.previewImage = new Gtk.Image();
-		this.previewImage.set_size_request(128, 128);
+		this.previewImage.set_size_request(64, 64);
 		previewControlBox.pack_start(this.previewImage, false, false, 0);
 
 		this.previewButton = new Gtk.Button({ 
@@ -317,7 +341,8 @@ constructor(themePath) {
 
 		let symlinkEditorBox = new Gtk.Box({
 			orientation: Gtk.Orientation.VERTICAL,
-			spacing: 5
+			spacing: 3,
+			hexpand: true
 		});
 
 		let targetLabel = new Gtk.Label({ 
@@ -328,7 +353,7 @@ constructor(themePath) {
 
 		let targetEntryBox = new Gtk.Box({
 			orientation: Gtk.Orientation.HORIZONTAL,
-			spacing: 5
+			spacing: 3
 		});
 
 this.symlinkTargetEntry = new Gtk.Entry({
@@ -347,7 +372,7 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 
 		let symlinkButtonsBox = new Gtk.Box({
 			orientation: Gtk.Orientation.HORIZONTAL,
-			spacing: 5
+			spacing: 3
 		});
 
 		this.symlinkResetButton = new Gtk.Button({ 
@@ -373,12 +398,12 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 		
 		this.filePreviewBox = new Gtk.Box({
 			orientation: Gtk.Orientation.HORIZONTAL,
-			spacing: 10,
+			spacing: 3,
 			margin_top: 5
 		});
 
 		this.filePreviewImage = new Gtk.Image();
-		this.filePreviewImage.set_size_request(128, 128);
+		this.filePreviewImage.set_size_request(64, 64);
 		this.filePreviewBox.pack_start(this.filePreviewImage, false, false, 0);
 
 		this.filePreviewLabel = new Gtk.Label({
@@ -386,7 +411,7 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 			halign: Gtk.Align.START,
 			valign: Gtk.Align.START,
 			wrap: true,
-			width_request: 300
+			width_request: 100
 		});
 		this.filePreviewBox.pack_start(this.filePreviewLabel, true, true, 10);
 
@@ -396,7 +421,7 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 
 		editorBox.pack_start(new Gtk.Label({ label: '' }), true, true, 0);
 
-		contentBox.pack_start(editorBox, true, true, 0);
+		contentBox.pack_start(editorBox, false, false, 0);
 		mainBox.pack_start(contentBox, true, true, 0);
 
 		this.statusbar = new Gtk.Statusbar();
@@ -1206,11 +1231,11 @@ convertSymlinkToFile() {
     
     // Создаём содержимое диалога
     let contentBox = dialog.get_content_area();
-    contentBox.set_spacing(10);
-    contentBox.set_margin_start(10);
-    contentBox.set_margin_end(10);
-    contentBox.set_margin_top(10);
-    contentBox.set_margin_bottom(10);
+    contentBox.set_spacing(3);
+    contentBox.set_margin_start(5);
+    contentBox.set_margin_end(5);
+    contentBox.set_margin_top(5);
+    contentBox.set_margin_bottom(5);
     
     // Текст с информацией о файле
     let infoLabel = new Gtk.Label({
@@ -1236,7 +1261,7 @@ convertSymlinkToFile() {
     // Контейнер для поля ввода и индикатора
     let entryBox = new Gtk.Box({
         orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 5
+        spacing: 3
     });
     entryBox.pack_start(targetEntry, true, true, 0);
     entryBox.pack_start(statusImage, false, false, 0);
