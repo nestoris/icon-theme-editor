@@ -1,5 +1,7 @@
-# icon-theme-editor
-super-puper-power-tower editor for Linux icon themes)))
+# Icon Theme Editor
+## super-puper-power-tower editor for Linux icon themes)))
+
+I'm kidding, it's my try to make something for easy theme creating. So this is a tool to find and fix some (not all) bugs in your hand-made Icon Theme for GNU/Linux.
 
 **Installation:**
 ```
@@ -17,6 +19,16 @@ gjs icon-theme-editor.js /path/to/your/theme/index.theme
 GTK3, GJS or CJS (may use old versions of CJS 128.1)
 ```
 
-**Screenshot:**
+**Screenshots:**
 
-![ite_screen.png](ite_screen.png)
+Overview:
+
+![screen1.png](screen1.png)
+
+Main window:
+
+![main_window.png](main_window.png)
+
+Properties of double-clicked icon name:
+
+![props.png](props.png)

@@ -11,8 +11,6 @@ const Gettext = imports.gettext;
 
 Gtk.init(null);
 
-
-
 // ==================== НАСТРОЙКА ЛОКАЛИЗАЦИИ ====================
 const APP_DOMAIN = 'icon-theme-editor';
 const LOCALE_DIR = 'locale';
@@ -33,33 +31,1011 @@ function formatString(str, ...args) {
 	return result;
 }
 
+// ==================== КЛАСС ICONPROPERTIESWINDOW ====================
+class IconPropertiesWindow {
+	constructor(app, iconName) {
+		this.app = app;
+		this.iconName = iconName;
+		this.themeDir = app.themeDir;
+		this.icon = app.icons.find(i => i.name === iconName);
+		this.tabWidgets = new Map();
+		this.reverseIndex = null;
+
+		this.window = new Gtk.Window({
+			title: formatString(_('Properties: %s'), iconName),
+			default_width: 900,
+			default_height: 680,
+			transient_for: app.window,
+			modal: true,
+			window_position: Gtk.WindowPosition.CENTER_ON_PARENT
+		});
+
+		this.buildUI();
+		this.buildReverseIndex();
+		this.refresh();
+		this.window.show_all();
+	}
+
+	// ==================== ИЗВЛЕЧЕНИЕ РАЗМЕРА ИЗ ПУТИ ====================
+
+	getDirSize(dirName) {
+			if (!dirName) return '';
+			let info = this.app.directoryInfo.get(dirName);
+			if (!info || info.size === null || info.size === undefined) return '';
+			return String(info.size);
+	}
+
+	getSizeOfFile(filePath) {
+			let dirName = GLib.path_get_dirname(filePath);
+			return this.getDirSize(dirName);
+	}
+	// ==================== ЗАГРУЗКА ПРЕВЬЮ В СВОЙСТВАХ ====================
+	loadPreviewPixbuf(absPath, size) {
+		  try {
+		      // 1. Читаем файл в натуральную величину — без интерполяции
+		      let raw = GdkPixbuf.Pixbuf.new_from_file(absPath);
+
+		      let w = raw.get_width();
+		      let h = raw.get_height();
+
+		      // 2. Если размер уже совпадает — возвращаем как есть
+		      if (w === size && h === size) return raw;
+
+		      // 3. Масштабируем без сглаживания (NEAREST) с сохранением пропорций
+		      let scale = Math.min(size / w, size / h);
+		      let newW = Math.max(1, Math.round(w * scale));
+		      let newH = Math.max(1, Math.round(h * scale));
+
+		      let scaled = raw.scale_simple(newW, newH, GdkPixbuf.InterpType.NEAREST);
+
+		      // 4. Если получилось меньше size×size — центрируем на прозрачном полотне
+		      if (newW === size && newH === size) return scaled;
+
+		      let canvas = GdkPixbuf.Pixbuf.new(
+		          GdkPixbuf.Colorspace.RGB, true, 8, size, size);
+		      canvas.fill(0x00000000);
+		      scaled.copy_area(
+		          0, 0, newW, newH, canvas,
+		          Math.floor((size - newW) / 2),
+		          Math.floor((size - newH) / 2)
+		      );
+		      return canvas;
+		  } catch (e) {
+		      return null;
+		  }
+	}
+
+	// ==================== ПОСТРОЕНИЕ ИНТЕРФЕЙСА ====================
+	buildUI() {
+		let mainBox = new Gtk.Box({
+			orientation: Gtk.Orientation.VERTICAL,
+			spacing: 5,
+			margin: 5
+		});
+
+		// Шапка
+		let headerBox = new Gtk.Box({
+			orientation: Gtk.Orientation.HORIZONTAL,
+			spacing: 10
+		});
+
+		this.headerImage = new Gtk.Image();
+		this.headerImage.set_size_request(64, 64);
+		headerBox.pack_start(this.headerImage, false, false, 0);
+
+		let infoBox = new Gtk.Box({
+			orientation: Gtk.Orientation.VERTICAL,
+			spacing: 3
+		});
+
+		this.titleLabel = new Gtk.Label({
+			label: '',
+			use_markup: true,
+			halign: Gtk.Align.START
+		});
+		infoBox.pack_start(this.titleLabel, false, false, 0);
+
+		this.summaryLabel = new Gtk.Label({
+			label: '',
+			halign: Gtk.Align.START
+		});
+		infoBox.pack_start(this.summaryLabel, false, false, 0);
+
+		headerBox.pack_start(infoBox, true, true, 0);
+
+		let refreshButton = new Gtk.Button({ label: _('Refresh') });
+		refreshButton.set_tooltip_text(_('Re-read files and symlinks of this icon from disk, then rebuild the referenced-by index.'));
+		refreshButton.connect('clicked', () => {
+			this.app.refreshIcon(this.iconName);
+			this.buildReverseIndex();
+			this.refresh();
+		});
+		headerBox.pack_start(refreshButton, false, false, 0);
+
+		mainBox.pack_start(headerBox, false, false, 0);
+
+		// Notebook
+		this.notebook = new Gtk.Notebook();
+		this.notebook.set_tooltip_text(_('One tab per icon context found in index.theme. Operations apply only to the current tab.'));
+		mainBox.pack_start(this.notebook, true, true, 0);
+
+		// Статусбар
+		this.statusbar = new Gtk.Statusbar();
+		this.statusContextId = this.statusbar.get_context_id('props');
+		mainBox.pack_start(this.statusbar, false, false, 0);
+
+		// Кнопка закрытия
+		let bottomBox = new Gtk.Box({
+			orientation: Gtk.Orientation.HORIZONTAL,
+			spacing: 5
+		});
+		bottomBox.pack_start(new Gtk.Label({ label: '' }), true, true, 0);
+
+		let closeButton = new Gtk.Button({ label: _('Close') });
+		closeButton.set_tooltip_text(_('Close this window. Any changes already applied stay on disk.'));
+		closeButton.connect('clicked', () => this.window.destroy());
+		bottomBox.pack_start(closeButton, false, false, 0);
+
+		mainBox.pack_start(bottomBox, false, false, 0);
+
+		this.window.add(mainBox);
+	}
+
+	// ==================== ОБНОВЛЕНИЕ ОКНА ====================
+	refresh() {
+		this.icon = this.app.icons.find(i => i.name === this.iconName);
+		if (!this.icon) {
+			this.window.destroy();
+			return;
+		}
+
+		this.updateHeader();
+
+		// Очистить notebook
+		let n = this.notebook.get_n_pages();
+		for (let i = n - 1; i >= 0; i--) {
+			let child = this.notebook.get_nth_page(i);
+			this.notebook.remove_page(i);
+			if (child) child.destroy();
+		}
+		this.tabWidgets.clear();
+
+		let contexts = this.getIconContexts(this.icon);
+
+		for (let [context, dirs] of contexts) {
+			let tabWidgets = this.buildTab(context, dirs);
+			this.tabWidgets.set(context, tabWidgets);
+
+			let tabLabel = new Gtk.Label({ label: context });
+			this.notebook.append_page(tabWidgets.mainBox, tabLabel);
+		}
+
+		this.notebook.show_all();
+	}
+
+		updateHeader() {
+				let files = this.icon.realFiles.size;
+				let symlinks = this.icon.symlinks.size;
+				let contexts = new Set(this.icon.directories.values()).size;
+
+				let escapedName = this.iconName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+				this.titleLabel.set_markup('<b>' + escapedName + '</b>');
+
+				this.summaryLabel.set_text(formatString(
+				    _('%d files, %d symlinks, %d contexts'),
+				    files, symlinks, contexts
+				));
+
+				this.headerImage.set_from_pixbuf(null);
+		}
+
+	// ==================== ГРУППИРОВКА ПО КОНТЕКСТАМ ====================
+	getIconContexts(icon) {
+		let contexts = new Map();
+		for (let [dir, context] of icon.directories) {
+			if (!contexts.has(context)) contexts.set(context, []);
+			contexts.get(context).push(dir);
+		}
+		let sorted = new Map([...contexts.entries()].sort());
+		for (let [_k, dirs] of sorted) dirs.sort();
+		return sorted;
+	}
+
+getFilesInContext(dirs) {
+    let files = [];
+
+    for (let [path, target] of this.icon.symlinks) {
+        let dir = GLib.path_get_dirname(path);   // ← было path.split('/')[0]
+        if (dirs.includes(dir)) {
+            files.push({ path: path, isSymlink: true, target: target });
+        }
+    }
+
+    for (let [path, _v] of this.icon.realFiles) {
+        let dir = GLib.path_get_dirname(path);   // ← было path.split('/')[0]
+        if (dirs.includes(dir)) {
+            files.push({ path: path, isSymlink: false, target: null });
+        }
+    }
+
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    return files;
+}
+
+	// ==================== ПОСТРОЕНИЕ ВКЛАДКИ ====================
+	buildTab(context, dirs) {
+		let mainBox = new Gtk.Box({
+			orientation: Gtk.Orientation.VERTICAL,
+			spacing: 5,
+			margin: 5
+		});
+
+		// Таблица файлов
+		let filesLabel = new Gtk.Label({
+			label: '<b>' + _('Files in this context') + '</b>',
+			use_markup: true,
+			halign: Gtk.Align.START
+		});
+		filesLabel.set_tooltip_text(_('Physical files and symlinks of this icon in directories belonging to the selected context.'));
+		mainBox.pack_start(filesLabel, false, false, 0);
+
+		let filesScrolled = new Gtk.ScrolledWindow();
+		filesScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
+		filesScrolled.set_size_request(-1, 180);
+
+		let filesStore = new Gtk.ListStore();
+		filesStore.set_column_types([
+				GdkPixbuf.Pixbuf,      // 0: thumbnail
+				GObject.TYPE_STRING,   // 1: path
+				GObject.TYPE_STRING,   // 2: type
+				GObject.TYPE_STRING,   // 3: target
+				GObject.TYPE_STRING,   // 4: status
+				GObject.TYPE_STRING    // 5: size
+		]);
+
+let filesView = new Gtk.TreeView({ model: filesStore, headers_clickable: true });
+
+let pixRenderer = new Gtk.CellRendererPixbuf();
+let pixColumn = new Gtk.TreeViewColumn({ title: '' });
+pixColumn.pack_start(pixRenderer, false);
+pixColumn.add_attribute(pixRenderer, 'pixbuf', 0);
+filesView.append_column(pixColumn);
+
+let pathRenderer = new Gtk.CellRendererText();
+let pathColumn = new Gtk.TreeViewColumn({ title: _('Path') });
+pathColumn.pack_start(pathRenderer, true);
+pathColumn.add_attribute(pathRenderer, 'text', 1);
+pathColumn.set_resizable(true);
+pathColumn.set_expand(true);
+pathColumn.set_min_width(180);
+pathColumn.set_sort_column_id(1);
+pathColumn.set_clickable(true);
+pathRenderer.set_property('ellipsize', 3);
+filesView.append_column(pathColumn);
+
+// === Size ===
+let sizeRenderer = new Gtk.CellRendererText();
+let sizeColumn = new Gtk.TreeViewColumn({ title: _('Size') });
+sizeColumn.pack_start(sizeRenderer, false);
+sizeColumn.add_attribute(sizeRenderer, 'text', 5);
+sizeColumn.set_min_width(60);
+sizeColumn.set_resizable(true);
+sizeColumn.set_sort_column_id(5);
+sizeColumn.set_clickable(true);
+filesView.append_column(sizeColumn);
+
+let typeRenderer = new Gtk.CellRendererText();
+let typeColumn = new Gtk.TreeViewColumn({ title: _('Type') });
+typeColumn.pack_start(typeRenderer, false);
+typeColumn.add_attribute(typeRenderer, 'text', 2);
+typeColumn.set_min_width(80);
+typeColumn.set_resizable(true);
+typeColumn.set_sort_column_id(2);
+typeColumn.set_clickable(true);
+filesView.append_column(typeColumn);
+
+let targetRenderer = new Gtk.CellRendererText();
+let targetColumn = new Gtk.TreeViewColumn({ title: _('Target') });
+targetColumn.pack_start(targetRenderer, true);
+targetColumn.add_attribute(targetRenderer, 'text', 3);
+targetColumn.set_min_width(150);
+targetColumn.set_resizable(true);
+targetColumn.set_expand(true);
+targetColumn.set_sort_column_id(3);
+targetColumn.set_clickable(true);
+targetRenderer.set_property('ellipsize', 3);
+filesView.append_column(targetColumn);
+
+let statusRenderer = new Gtk.CellRendererText();
+let statusColumn = new Gtk.TreeViewColumn({ title: _('Status') });
+statusColumn.pack_start(statusRenderer, false);
+statusColumn.add_attribute(statusRenderer, 'text', 4);
+statusColumn.set_min_width(90);
+statusColumn.set_resizable(true);
+statusColumn.set_sort_column_id(4);
+statusColumn.set_clickable(true);
+filesView.append_column(statusColumn);
+
+		filesScrolled.add(filesView);
+
+filesView.connect('cursor-changed', () => {
+    let [ok, model, iter] = filesView.get_selection().get_selected();
+    if (!ok || !iter) {
+        this.headerImage.set_from_pixbuf(null);
+        return;
+    }
+    let path = model.get_value(iter, 1);
+    let abs = this.themeDir + '/' + path;
+    let pix = this.loadPreviewPixbuf(abs, 64);
+    this.headerImage.set_from_pixbuf(pix);
+});
+
+		mainBox.pack_start(filesScrolled, true, true, 0);
+
+		// Операции
+		let opsLabel = new Gtk.Label({
+			label: '<b>' + _('Operations') + '</b>',
+			use_markup: true,
+			halign: Gtk.Align.START
+		});
+		mainBox.pack_start(opsLabel, false, false, 0);
+
+		let opsBox = new Gtk.Box({
+			orientation: Gtk.Orientation.HORIZONTAL,
+			spacing: 5
+		});
+
+		let masterButton = new Gtk.Button({ label: _('Master file...') });
+		masterButton.set_tooltip_text(_('Choose one physical file as the master. All other files and symlinks in this context will be re-pointed to it.'));
+		masterButton.connect('clicked', () => this.applyMaster(context));
+		opsBox.pack_start(masterButton, false, false, 0);
+
+		let toFilesButton = new Gtk.Button({ label: _('All to files') });
+		toFilesButton.set_tooltip_text(_('Replace every symlink in this context with a physical copy of its target. The symlinks are removed and real files are written.'));
+		toFilesButton.connect('clicked', () => this.allToFiles(context));
+		opsBox.pack_start(toFilesButton, false, false, 0);
+
+		let unchainButton = new Gtk.Button({ label: _('Unchain') });
+		unchainButton.set_tooltip_text(_('For every symlink that points to another symlink, re-target it directly to the final physical file.'));
+		unchainButton.connect('clicked', () => this.unchain(context));
+		opsBox.pack_start(unchainButton, false, false, 0);
+
+		let removeBrokenButton = new Gtk.Button({ label: _('Remove broken') });
+		removeBrokenButton.set_tooltip_text(_('Delete symlinks in this context whose target file no longer exists. Physical files are never touched.'));
+		removeBrokenButton.connect('clicked', () => this.removeBroken(context));
+		opsBox.pack_start(removeBrokenButton, false, false, 0);
+
+		mainBox.pack_start(opsBox, false, false, 0);
+
+		// Обратные ссылки
+		let refsLabel = new Gtk.Label({
+			label: '<b>' + _('Referenced by') + '</b>',
+			use_markup: true,
+			halign: Gtk.Align.START
+		});
+		refsLabel.set_tooltip_text(_('All symlinks across the whole theme that point to physical files listed above. Built at window open; use Refresh to rebuild.'));
+		mainBox.pack_start(refsLabel, false, false, 0);
+
+		let refsScrolled = new Gtk.ScrolledWindow();
+		refsScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
+		refsScrolled.set_size_request(-1, 140);
+
+		let refsStore = new Gtk.ListStore();
+		refsStore.set_column_types([
+				GObject.TYPE_STRING,   // 0: physical file
+				GObject.TYPE_STRING,   // 1: referrer
+				GObject.TYPE_STRING,   // 2: icon
+				GObject.TYPE_STRING,   // 3: size
+				GObject.TYPE_STRING    // 4: context
+		]);
+
+		let refsView = new Gtk.TreeView({ model: refsStore, headers_clickable: true });
+
+		let physRenderer = new Gtk.CellRendererText();
+		let physColumn = new Gtk.TreeViewColumn({ title: _('Physical file') });
+		physColumn.pack_start(physRenderer, true);
+		physColumn.add_attribute(physRenderer, 'text', 0);
+		physColumn.set_resizable(true);
+		physColumn.set_expand(true);
+		physColumn.set_min_width(180);
+		physColumn.set_sort_column_id(0);
+		physColumn.set_clickable(true);
+		physRenderer.set_property('ellipsize', 3);
+		refsView.append_column(physColumn);
+
+		// === Size ===
+		let refSizeRenderer = new Gtk.CellRendererText();
+		let refSizeColumn = new Gtk.TreeViewColumn({ title: _('Size') });
+		refSizeColumn.pack_start(refSizeRenderer, false);
+		refSizeColumn.add_attribute(refSizeRenderer, 'text', 3);
+		refSizeColumn.set_min_width(60);
+		refSizeColumn.set_resizable(true);
+		refSizeColumn.set_sort_column_id(3);
+		refSizeColumn.set_clickable(true);
+		refsView.append_column(refSizeColumn);
+
+		let refRenderer = new Gtk.CellRendererText();
+		let refColumn = new Gtk.TreeViewColumn({ title: _('Referrer') });
+		refColumn.pack_start(refRenderer, true);
+		refColumn.add_attribute(refRenderer, 'text', 1);
+		refColumn.set_resizable(true);
+		refColumn.set_expand(true);
+		refColumn.set_min_width(180);
+		refColumn.set_sort_column_id(1);
+		refColumn.set_clickable(true);
+		refRenderer.set_property('ellipsize', 3);
+		refsView.append_column(refColumn);
+
+		let refIconRenderer = new Gtk.CellRendererText();
+		let refIconColumn = new Gtk.TreeViewColumn({ title: _('Icon') });
+		refIconColumn.pack_start(refIconRenderer, false);
+		refIconColumn.add_attribute(refIconRenderer, 'text', 2);
+		refIconColumn.set_min_width(120);
+		refIconColumn.set_resizable(true);
+		refIconColumn.set_sort_column_id(2);
+		refIconColumn.set_clickable(true);
+		refsView.append_column(refIconColumn);
+
+		// === Context ===
+		let refContextRenderer = new Gtk.CellRendererText();
+		let refContextColumn = new Gtk.TreeViewColumn({ title: _('Context') });
+		refContextColumn.pack_start(refContextRenderer, false);
+		refContextColumn.add_attribute(refContextRenderer, 'text', 4);
+		refContextColumn.set_min_width(100);
+		refContextColumn.set_resizable(true);
+		refContextColumn.set_sort_column_id(4);
+		refContextColumn.set_clickable(true);
+		refsView.append_column(refContextColumn);
+
+		refsScrolled.add(refsView);
+		mainBox.pack_start(refsScrolled, true, true, 0);
+
+		let tabWidgets = {
+			mainBox: mainBox,
+			context: context,
+			dirs: dirs,
+			filesStore: filesStore,
+			filesView: filesView,
+			refsStore: refsStore,
+			refsView: refsView
+		};
+
+		this.populateTab(tabWidgets);
+		return tabWidgets;
+	}
+
+	// ==================== ЗАПОЛНЕНИЕ ВКЛАДКИ ====================
+	populateTab(tabWidgets) {
+		let filesStore = tabWidgets.filesStore;
+		let refsStore = tabWidgets.refsStore;
+		filesStore.clear();
+		refsStore.clear();
+
+		let files = this.getFilesInContext(tabWidgets.dirs);
+
+		for (let file of files) {
+				let iter = filesStore.append();
+
+				// Миниатюра без сглаживания, 32×32
+				let pixbuf = this.loadPreviewPixbuf(
+				    this.themeDir + '/' + file.path, 32);
+
+				// Тип
+				let typeText = file.isSymlink ? _('symlink') : _('file');
+
+				// Размер из имени каталога
+				let sizeText = this.getSizeOfFile(file.path);
+
+				// Статус
+				let status = 'OK';
+				if (file.isSymlink) {
+				    let resolved = this.resolveSymlink(file.path, file.target);
+				    let absTarget = this.themeDir + '/' + resolved;
+				    let targetFile = Gio.File.new_for_path(absTarget);
+				    if (!targetFile.query_exists(null)) {
+				        status = _('Broken');
+				    } else {
+				        try {
+				            let ti = targetFile.query_info('standard::is-symlink',
+				                Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+				            if (ti.get_is_symlink()) status = _('Chain');
+				        } catch (e) { /* ignore */ }
+				    }
+				}
+
+				filesStore.set(iter, [0, 1, 2, 3, 4, 5],
+				    [pixbuf, file.path, typeText, file.target || '', status, sizeText]);
+		}
+
+		// Обратные ссылки
+		if (this.reverseIndex) {
+				for (let file of files) {
+					  if (file.isSymlink) continue;
+					  let refs = this.reverseIndex.get(file.path) || [];
+
+					  // Размер физического файла — из параметров его каталога
+					  let physicalSize = this.getSizeOfFile(file.path);
+
+					  for (let ref of refs) {
+					      let iter = refsStore.append();
+
+					      // Контекст ссылающегося симлинка — из его значка
+					      let context = '';
+					      let refIcon = this.app.icons.find(i => i.name === ref.iconName);
+					      if (refIcon) {
+					          let refDir = GLib.path_get_dirname(ref.symlinkPath);
+					          context = refIcon.directories.get(refDir) || '';
+					      }
+
+					      refsStore.set(iter, [0, 1, 2, 3, 4],
+					          [file.path, ref.symlinkPath, ref.iconName, physicalSize, context]);
+					  }
+				}
+		}
+		filesStore.set_sort_column_id(1, Gtk.SortType.ASCENDING);   // Path
+		refsStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);    // Physical file
+	}
+
+	// ==================== ИНДЕКС ОБРАТНЫХ ССЫЛОК ====================
+	buildReverseIndex() {
+		this.reverseIndex = new Map();
+
+		for (let icon of this.app.icons) {
+			for (let [symlinkPath, target] of icon.symlinks) {
+				try {
+					let resolved = this.resolveSymlink(symlinkPath, target);
+					if (!this.reverseIndex.has(resolved)) {
+						this.reverseIndex.set(resolved, []);
+					}
+					this.reverseIndex.get(resolved).push({
+						symlinkPath: symlinkPath,
+						iconName: icon.name
+					});
+				} catch (e) { /* ignore */ }
+			}
+		}
+	}
+
+	// ==================== УТИЛИТЫ ПУТЕЙ ====================
+	resolveSymlink(symlinkPath, target) {
+		let dir = GLib.path_get_dirname(symlinkPath);
+		let fromFile = Gio.File.new_for_path(this.themeDir + '/' + dir);
+		let resolved = fromFile.resolve_relative_path(target);
+		let abs = resolved.get_path();
+		if (abs.startsWith(this.themeDir + '/')) {
+			return abs.substring(this.themeDir.length + 1);
+		}
+		return abs;
+	}
+
+	relativePath(fromDir, toPath) {
+		let from = fromDir.split('/').filter(Boolean);
+		let to = toPath.split('/').filter(Boolean);
+		let common = 0;
+		while (common < from.length && common < to.length - 1
+			   && from[common] === to[common]) common++;
+		let up = new Array(from.length - common).fill('..');
+		return up.concat(to.slice(common)).join('/');
+	}
+
+	resolveChain(path) {
+		let current = path;
+		let seen = new Set();
+		let maxDepth = 20;
+
+		while (maxDepth-- > 0) {
+			if (seen.has(current)) return null;
+			seen.add(current);
+
+			let abs = this.themeDir + '/' + current;
+			let file = Gio.File.new_for_path(abs);
+
+			try {
+				let info = file.query_info('standard::is-symlink',
+					Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+				if (!info.get_is_symlink()) return current;
+
+				let targetInfo = file.query_info('standard::symlink-target',
+					Gio.FileQueryInfoFlags.NONE, null);
+				let target = targetInfo.get_symlink_target();
+				if (!target) return null;
+
+				let dir = GLib.path_get_dirname(current);
+				let fromFile = Gio.File.new_for_path(this.themeDir + '/' + dir);
+				let resolved = fromFile.resolve_relative_path(target);
+				let absResolved = resolved.get_path();
+
+				if (absResolved.startsWith(this.themeDir + '/')) {
+					current = absResolved.substring(this.themeDir.length + 1);
+				} else {
+					return absResolved;
+				}
+			} catch (e) {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	// ==================== ОПЕРАЦИЯ: МАСТЕР-ФАЙЛ ====================
+	applyMaster(context) {
+		let tabWidgets = this.tabWidgets.get(context);
+		if (!tabWidgets) return;
+
+		let files = this.getFilesInContext(tabWidgets.dirs);
+		let realFiles = files.filter(f => !f.isSymlink);
+
+		if (realFiles.length === 0) {
+			this.showMessage(_('No physical files in this context. Cannot choose a master.'));
+			return;
+		}
+
+		// Диалог выбора мастера
+		let dialog = new Gtk.Dialog({
+			title: _('Choose master file'),
+			transient_for: this.window,
+			modal: true,
+			destroy_with_parent: true
+		});
+		dialog.add_button(_('Cancel'), Gtk.ResponseType.CANCEL);
+		dialog.add_button(_('OK'), Gtk.ResponseType.OK);
+		dialog.set_default_response(Gtk.ResponseType.OK);
+
+		let content = dialog.get_content_area();
+		content.set_spacing(5);
+		content.set_margin_start(10);
+		content.set_margin_end(10);
+		content.set_margin_top(10);
+		content.set_margin_bottom(10);
+
+		let label = new Gtk.Label({
+			label: _('Choose a file to become the master. Other files in this context will become symlinks to it.'),
+			halign: Gtk.Align.START,
+			wrap: true
+		});
+		content.pack_start(label, false, false, 0);
+
+		let scrolled = new Gtk.ScrolledWindow();
+		scrolled.set_size_request(400, 220);
+
+		let store = new Gtk.ListStore();
+		store.set_column_types([GObject.TYPE_STRING]);
+
+		let view = new Gtk.TreeView({ model: store });
+		let renderer = new Gtk.CellRendererText();
+		let column = new Gtk.TreeViewColumn({ title: _('File') });
+		column.pack_start(renderer, true);
+		column.add_attribute(renderer, 'text', 0);
+		view.append_column(column);
+
+		for (let file of realFiles) {
+			let iter = store.append();
+			store.set(iter, [0], [file.path]);
+		}
+
+		let selection = view.get_selection();
+		selection.set_mode(Gtk.SelectionMode.SINGLE);
+		let firstIter = store.get_iter_first();
+		if (firstIter) selection.select_iter(firstIter);
+
+		scrolled.add(view);
+		content.pack_start(scrolled, true, true, 0);
+		dialog.show_all();
+
+		let response = dialog.run();
+		let chosenPath = null;
+		if (response === Gtk.ResponseType.OK) {
+			let [ok, model, iter] = selection.get_selected();
+			if (ok) chosenPath = model.get_value(iter, 0);
+		}
+		dialog.destroy();
+
+		if (!chosenPath) return;
+
+		let affected = 0;
+		let errors = [];
+
+		for (let file of files) {
+			if (file.path === chosenPath) continue;
+
+			try {
+				let absPath = this.themeDir + '/' + file.path;
+				let dirOfFile = GLib.path_get_dirname(file.path);
+				let relTarget = this.relativePath(dirOfFile, chosenPath);
+
+				// Проверка: не указывает ли уже симлинк на мастера
+				if (file.isSymlink) {
+					let resolved = this.resolveSymlink(file.path, file.target);
+					if (resolved === chosenPath) continue;
+				}
+
+				let fileObj = Gio.File.new_for_path(absPath);
+				fileObj.delete(null);
+				fileObj.make_symbolic_link(relTarget, null);
+				affected++;
+			} catch (e) {
+				errors.push(file.path + ': ' + e.message);
+			}
+		}
+
+		this.setStatus(formatString(_('Converted %d files to symlinks'), affected));
+		if (errors.length > 0) {
+			this.showMessage(_('Errors:') + '\n' + errors.join('\n'));
+		}
+
+		this.app.refreshIcon(this.iconName);
+		this.buildReverseIndex();
+		this.refresh();
+	}
+
+	// ==================== ОПЕРАЦИЯ: ВСЁ В ФАЙЛЫ ====================
+	allToFiles(context) {
+		let tabWidgets = this.tabWidgets.get(context);
+		if (!tabWidgets) return;
+
+		let files = this.getFilesInContext(tabWidgets.dirs);
+		let symlinks = files.filter(f => f.isSymlink);
+
+		if (symlinks.length === 0) {
+			this.showMessage(_('No symlinks in this context.'));
+			return;
+		}
+
+		if (!this.confirmDialog(
+			formatString(_('Convert %d symlinks to physical files?'), symlinks.length),
+			_('Each symlink will be replaced with a copy of its target file.')
+		)) return;
+
+		let affected = 0;
+		let errors = [];
+
+		for (let file of symlinks) {
+			try {
+				let absPath = this.themeDir + '/' + file.path;
+				let resolved = this.resolveSymlink(file.path, file.target);
+				let absTarget = this.themeDir + '/' + resolved;
+
+				let targetFile = Gio.File.new_for_path(absTarget);
+				let symlinkFile = Gio.File.new_for_path(absPath);
+
+				if (!targetFile.query_exists(null)) {
+					errors.push(file.path + ': target does not exist');
+					continue;
+				}
+
+				targetFile.copy(symlinkFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+				affected++;
+			} catch (e) {
+				errors.push(file.path + ': ' + e.message);
+			}
+		}
+
+		this.setStatus(formatString(_('Converted %d symlinks to files'), affected));
+		if (errors.length > 0) {
+			this.showMessage(_('Errors:') + '\n' + errors.join('\n'));
+		}
+
+		this.app.refreshIcon(this.iconName);
+		this.buildReverseIndex();
+		this.refresh();
+	}
+
+	// ==================== ОПЕРАЦИЯ: РАЗВЕРНУТЬ ЦЕПОЧКИ ====================
+	unchain(context) {
+		let tabWidgets = this.tabWidgets.get(context);
+		if (!tabWidgets) return;
+
+		let files = this.getFilesInContext(tabWidgets.dirs);
+		let symlinks = files.filter(f => f.isSymlink);
+
+		let toFix = [];
+		for (let file of symlinks) {
+			let resolved = this.resolveSymlink(file.path, file.target);
+			let finalPath = this.resolveChain(resolved);
+			if (finalPath && finalPath !== resolved) {
+				toFix.push({ file: file, finalPath: finalPath });
+			}
+		}
+
+		if (toFix.length === 0) {
+			this.showMessage(_('No symlink chains found.'));
+			return;
+		}
+
+		if (!this.confirmDialog(
+			formatString(_('Fix %d symlink chains?'), toFix.length),
+			_('Each symlink pointing to another symlink will be re-targeted directly to the final file.')
+		)) return;
+
+		let affected = 0;
+		let errors = [];
+
+		for (let item of toFix) {
+			let file = item.file;
+			let finalPath = item.finalPath;
+			try {
+				let absPath = this.themeDir + '/' + file.path;
+				let dirOfFile = GLib.path_get_dirname(file.path);
+				let relTarget = this.relativePath(dirOfFile, finalPath);
+
+				let fileObj = Gio.File.new_for_path(absPath);
+				fileObj.delete(null);
+				fileObj.make_symbolic_link(relTarget, null);
+				affected++;
+			} catch (e) {
+				errors.push(file.path + ': ' + e.message);
+			}
+		}
+
+		this.setStatus(formatString(_('Fixed %d chains'), affected));
+		if (errors.length > 0) {
+			this.showMessage(_('Errors:') + '\n' + errors.join('\n'));
+		}
+
+		this.app.refreshIcon(this.iconName);
+		this.buildReverseIndex();
+		this.refresh();
+	}
+
+	// ==================== ОПЕРАЦИЯ: УДАЛИТЬ БИТЫЕ ====================
+	removeBroken(context) {
+		let tabWidgets = this.tabWidgets.get(context);
+		if (!tabWidgets) return;
+
+		let files = this.getFilesInContext(tabWidgets.dirs);
+		let broken = [];
+
+		for (let file of files) {
+			if (!file.isSymlink) continue;
+			let resolved = this.resolveSymlink(file.path, file.target);
+			let absTarget = this.themeDir + '/' + resolved;
+			if (!Gio.File.new_for_path(absTarget).query_exists(null)) {
+				broken.push(file);
+			}
+		}
+
+		if (broken.length === 0) {
+			this.showMessage(_('No broken symlinks in this context.'));
+			return;
+		}
+
+		let listText = broken.map(b => b.path).join('\n');
+		if (!this.confirmDialog(
+			formatString(_('Delete %d broken symlinks?'), broken.length),
+			listText
+		)) return;
+
+		let affected = 0;
+		let errors = [];
+
+		for (let file of broken) {
+			try {
+				let abs = this.themeDir + '/' + file.path;
+				Gio.File.new_for_path(abs).delete(null);
+				affected++;
+			} catch (e) {
+				errors.push(file.path + ': ' + e.message);
+			}
+		}
+
+		this.setStatus(formatString(_('Removed %d broken symlinks'), affected));
+		if (errors.length > 0) {
+			this.showMessage(_('Errors:') + '\n' + errors.join('\n'));
+		}
+
+		this.app.refreshIcon(this.iconName);
+		this.buildReverseIndex();
+		this.refresh();
+	}
+
+	// ==================== ДИАЛОГИ ====================
+	confirmDialog(text, secondary) {
+		let dialog = new Gtk.MessageDialog({
+			transient_for: this.window,
+			modal: true,
+			message_type: Gtk.MessageType.QUESTION,
+			buttons: Gtk.ButtonsType.YES_NO,
+			text: text,
+			secondary_text: secondary
+		});
+		let response = dialog.run();
+		dialog.destroy();
+		return response === Gtk.ResponseType.YES;
+	}
+
+	showMessage(text) {
+		let dialog = new Gtk.MessageDialog({
+			transient_for: this.window,
+			modal: true,
+			message_type: Gtk.MessageType.INFO,
+			buttons: Gtk.ButtonsType.OK,
+			text: text
+		});
+		dialog.run();
+		dialog.destroy();
+	}
+
+	setStatus(msg) {
+		this.statusbar.remove_all(this.statusContextId);
+		this.statusbar.push(this.statusContextId, msg);
+	}
+}
+
 // ==================== КЛАСС ICONTHEMEEDITOR ====================
 class IconThemeEditor {
-constructor(themePath) {
-    this.currentPreviewDir = null;
-    this.currentSymlink = null;
-    this.currentSelectedFile = null;
-    this.currentSelectedIsSymlink = false;
-    this.symlinkOriginalTarget = null;
-    this.symlinkHasChanges = false;
-    this.themePath = themePath;
-    this.themeDir = '';
-    this.icons = [];
-    this.filteredIcons = [];
-    this.currentIcon = null;
-    this.isUpdating = false;
-    this.iconSelectTimer = null; // Добавить эту строку
-    this.createUI();
-    this.loadTheme();
-}
+	constructor(themePath) {
+		this.currentPreviewDir = null;
+		this.currentSymlink = null;
+		this.currentSelectedFile = null;
+		this.currentSelectedIsSymlink = false;
+		this.symlinkOriginalTarget = null;
+		this.symlinkHasChanges = false;
+		this.themePath = themePath;
+		this.themeDir = '';
+		this.icons = [];
+		this.filteredIcons = [];
+		this.currentIcon = null;
+		this.isUpdating = false;
+		this.iconSelectTimer = null;
+		this.directoryInfo = new Map();
+		this.createUI();
+		this.loadTheme();
+	}
+
+	// ==================== ПАРСИНГ index.theme ====================
+	parseIndexTheme() {
+		  let result = {
+		      directories: [],
+		      directoryInfo: new Map()
+		  };
+		  try {
+		      let indexFile = Gio.File.new_for_path(this.themeDir + '/index.theme');
+		      let [success, contents] = indexFile.load_contents(null);
+		      if (!success) return result;
+
+		      let text = imports.byteArray.toString(contents);
+		      let lines = text.split('\n');
+		      let currentSection = '';
+		      let inDirectoriesSection = false;
+
+		      for (let line of lines) {
+		          line = line.trim();
+		          if (line === '[Icon Theme]') {
+		              inDirectoriesSection = true;
+		              currentSection = 'Icon Theme';
+		          } else if (line.startsWith('[') && line.endsWith(']')) {
+		              currentSection = line.substring(1, line.length - 1);
+		              inDirectoriesSection = (line === '[Icon Theme]');
+		          } else if (inDirectoriesSection && line.startsWith('Directories=')) {
+		              let dirs = line.substring('Directories='.length).split(',');
+		              result.directories.push(...dirs.map(d => d.trim()));
+		          } else if (currentSection !== '' && line.includes('=')) {
+		              let eq = line.indexOf('=');
+		              let key = line.substring(0, eq).trim();
+		              let value = line.substring(eq + 1).trim();
+
+		              if (!result.directoryInfo.has(currentSection)) {
+		                  result.directoryInfo.set(currentSection,
+		                      { context: '', size: null, scale: null, type: '' });
+		              }
+		              let info = result.directoryInfo.get(currentSection);
+		              if (key === 'Context') info.context = value;
+		              else if (key === 'Size') info.size = parseInt(value) || null;
+		              else if (key === 'Scale') info.scale = parseInt(value) || null;
+		              else if (key === 'Type') info.type = value;
+		          }
+		      }
+		  } catch (e) { /* ignore */ }
+		  return result;
+	}
 
 	// ==================== СОЗДАНИЕ ИНТЕРФЕЙСА ====================
 	createUI() {
 		this.window = new Gtk.Window({
-				title: _('Icon Theme Editor - DisplayName'),
-				default_width: 970,
-				default_height: 600,
-				window_position: Gtk.WindowPosition.CENTER
+			title: _('Icon Theme Editor - DisplayName'),
+			default_width: 970,
+			default_height: 600,
+			window_position: Gtk.WindowPosition.CENTER
 		});
 
 		this.window.connect('destroy', () => Gtk.main_quit());
@@ -84,7 +1060,7 @@ constructor(themePath) {
 			spacing: 5
 		});
 
-		let filterLabel = new Gtk.Label({ 
+		let filterLabel = new Gtk.Label({
 			label: _('Filter:'),
 			halign: Gtk.Align.START
 		});
@@ -115,15 +1091,21 @@ constructor(themePath) {
 
 		let listScrolled = new Gtk.ScrolledWindow();
 		listScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
-		
+
 		this.listStore = new Gtk.ListStore();
-		this.listStore.set_column_types([GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING]);
-		
-		this.treeView = new Gtk.TreeView({ 
+		this.listStore.set_column_types([
+			GObject.TYPE_STRING,
+			GObject.TYPE_STRING,
+			GObject.TYPE_STRING,
+			GObject.TYPE_STRING,
+			GObject.TYPE_STRING  // baseName (hidden)
+		]);
+
+		this.treeView = new Gtk.TreeView({
 			model: this.listStore,
 			headers_clickable: true
 		});
-		
+
 		let nameRenderer = new Gtk.CellRendererText();
 		let nameColumn = new Gtk.TreeViewColumn({ title: _('Icons') });
 		nameColumn.pack_start(nameRenderer, true);
@@ -131,33 +1113,28 @@ constructor(themePath) {
 		nameColumn.add_attribute(nameRenderer, 'foreground', 1);
 		nameColumn.set_sort_column_id(0);
 		nameColumn.set_min_width(80);
-		nameColumn.set_expand(true);        // забирает свободное место
-		nameColumn.set_resizable(true);     // можно тянуть границу
+		nameColumn.set_expand(true);
+		nameColumn.set_resizable(true);
 		nameRenderer.set_property('ellipsize', 3);
 		nameColumn.connect('clicked', () => {
-				this.listStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);
+			this.listStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);
 		});
 		this.treeView.append_column(nameColumn);
-		
+
 		let contextRenderer = new Gtk.CellRendererText();
 		let contextColumn = new Gtk.TreeViewColumn({ title: _('Context') });
 		contextColumn.pack_start(contextRenderer, true);
 		contextColumn.add_attribute(contextRenderer, 'text', 3);
-		contextColumn.set_min_width(110);    // хватает для "International"/"Applications"
+		contextColumn.set_min_width(110);
 		contextColumn.set_sort_column_id(3);
-		contextColumn.set_expand(false);     // не растягивается
-		contextColumn.set_resizable(true);   // можно тянуть
+		contextColumn.set_expand(false);
+		contextColumn.set_resizable(true);
 		contextRenderer.set_property('ellipsize', 3);
-		contextColumn.connect('clicked', () => {
-				this.listStore.set_sort_column_id(3, Gtk.SortType.ASCENDING);
-		});
-		this.treeView.append_column(contextColumn);
-
 		contextColumn.connect('clicked', () => {
 			this.listStore.set_sort_column_id(3, Gtk.SortType.ASCENDING);
 		});
 		this.treeView.append_column(contextColumn);
-		
+
 		let reasonRenderer = new Gtk.CellRendererText();
 		let reasonColumn = new Gtk.TreeViewColumn({ title: _('Status') });
 		reasonColumn.pack_start(reasonRenderer, true);
@@ -168,15 +1145,16 @@ constructor(themePath) {
 		reasonColumn.set_resizable(true);
 		reasonRenderer.set_property('ellipsize', 3);
 		reasonColumn.connect('clicked', () => {
-				this.listStore.set_sort_column_id(2, Gtk.SortType.ASCENDING);
+			this.listStore.set_sort_column_id(2, Gtk.SortType.ASCENDING);
 		});
 		this.treeView.append_column(reasonColumn);
-		
+
 		this.treeView.connect('cursor-changed', this.onIconSelected.bind(this));
+		this.treeView.connect('row-activated', this.onIconActivated.bind(this));
 		listScrolled.add(this.treeView);
-		
+
 		leftPane.pack_start(listScrolled, true, true, 0);
-		
+
 		contentBox.pack_start(leftPane, true, true, 0);
 
 		let editorBox = new Gtk.Box({
@@ -191,14 +1169,14 @@ constructor(themePath) {
 			spacing: 5
 		});
 
-		let nameStaticLabel = new Gtk.Label({ 
+		let nameStaticLabel = new Gtk.Label({
 			label: _('<b>Selected Icon:</b>'),
 			use_markup: true,
 			halign: Gtk.Align.START
 		});
 		nameBox.pack_start(nameStaticLabel, false, false, 0);
 
-		this.iconNameLabel = new Gtk.Label({ 
+		this.iconNameLabel = new Gtk.Label({
 			label: _('None'),
 			halign: Gtk.Align.START,
 			selectable: true
@@ -207,14 +1185,14 @@ constructor(themePath) {
 
 		editorBox.pack_start(nameBox, false, false, 0);
 
-		this.warningLabel = new Gtk.Label({ 
+		this.warningLabel = new Gtk.Label({
 			label: '',
 			use_markup: true,
 			halign: Gtk.Align.START
 		});
 		editorBox.pack_start(this.warningLabel, false, false, 0);
 
-		let descLabel = new Gtk.Label({ 
+		let descLabel = new Gtk.Label({
 			label: _('<b>DisplayName:</b>'),
 			use_markup: true,
 			halign: Gtk.Align.START
@@ -232,21 +1210,21 @@ constructor(themePath) {
 			spacing: 10
 		});
 
-		this.saveButton = new Gtk.Button({ 
+		this.saveButton = new Gtk.Button({
 			label: _('Save'),
 			sensitive: false
 		});
 		this.saveButton.connect('clicked', () => this.saveIconFile());
 		editorButtonsBox.pack_start(this.saveButton, false, false, 0);
 
-		this.resetButton = new Gtk.Button({ 
+		this.resetButton = new Gtk.Button({
 			label: _('Reset'),
 			sensitive: false
 		});
 		this.resetButton.connect('clicked', () => this.loadCurrentIconFile());
 		editorButtonsBox.pack_start(this.resetButton, false, false, 0);
 
-		this.advancedButton = new Gtk.Button({ 
+		this.advancedButton = new Gtk.Button({
 			label: _('Coordinates...'),
 			sensitive: false
 		});
@@ -254,7 +1232,7 @@ constructor(themePath) {
 
 		editorBox.pack_start(editorButtonsBox, false, false, 0);
 
-		this.contextsLabel = new Gtk.Label({ 
+		this.contextsLabel = new Gtk.Label({
 			label: _('<b>Icon Files:</b>'),
 			use_markup: true,
 			halign: Gtk.Align.START
@@ -274,14 +1252,14 @@ constructor(themePath) {
 
 		let filesScrolled = new Gtk.ScrolledWindow();
 		filesScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
-		
+
 		this.filesListStore = new Gtk.ListStore();
 		this.filesListStore.set_column_types([GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING]);
-		
-		this.filesTreeView = new Gtk.TreeView({ 
+
+		this.filesTreeView = new Gtk.TreeView({
 			model: this.filesListStore
 		});
-		
+
 		let filePathRenderer = new Gtk.CellRendererText();
 		let filePathColumn = new Gtk.TreeViewColumn({ title: _('File') });
 		filePathColumn.pack_start(filePathRenderer, true);
@@ -302,7 +1280,7 @@ constructor(themePath) {
 		fileTargetColumn.set_resizable(true);
 		fileTargetRenderer.set_property('ellipsize', 3);
 		this.filesTreeView.append_column(fileTargetColumn);
-		
+
 		this.filesTreeView.connect('cursor-changed', this.onFileSelected.bind(this));
 		this.filesTreeView.connect('row-activated', this.onFileActivated.bind(this));
 		filesScrolled.add(this.filesTreeView);
@@ -318,21 +1296,21 @@ constructor(themePath) {
 		this.previewImage.set_size_request(64, 64);
 		previewControlBox.pack_start(this.previewImage, false, false, 0);
 
-		this.previewButton = new Gtk.Button({ 
+		this.previewButton = new Gtk.Button({
 			label: _('Open in Editor'),
 			sensitive: false
 		});
 		this.previewButton.connect('clicked', this.openImageInEditor.bind(this));
 		previewControlBox.pack_start(this.previewButton, false, false, 0);
 
-		this.deleteButton = new Gtk.Button({ 
+		this.deleteButton = new Gtk.Button({
 			label: _('Delete'),
 			sensitive: false
 		});
 		this.deleteButton.connect('clicked', this.deleteImageFile.bind(this));
 		previewControlBox.pack_start(this.deleteButton, false, false, 0);
 
-		this.convertToSymlinkButton = new Gtk.Button({ 
+		this.convertToSymlinkButton = new Gtk.Button({
 			label: _('File ↔ Symlink'),
 			sensitive: false
 		});
@@ -345,7 +1323,7 @@ constructor(themePath) {
 			hexpand: true
 		});
 
-		let targetLabel = new Gtk.Label({ 
+		let targetLabel = new Gtk.Label({
 			label: _('Symlink target:'),
 			halign: Gtk.Align.START
 		});
@@ -356,12 +1334,12 @@ constructor(themePath) {
 			spacing: 3
 		});
 
-this.symlinkTargetEntry = new Gtk.Entry({
-    hexpand: true,
-    sensitive: false
-});
-this.symlinkTargetEntry.connect('changed', this.onSymlinkTargetChanged.bind(this));
-this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.bind(this));
+		this.symlinkTargetEntry = new Gtk.Entry({
+			hexpand: true,
+			sensitive: false
+		});
+		this.symlinkTargetEntry.connect('changed', this.onSymlinkTargetChanged.bind(this));
+		this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.bind(this));
 		targetEntryBox.pack_start(this.symlinkTargetEntry, true, true, 0);
 
 		this.symlinkStatusIcon = new Gtk.Image();
@@ -375,14 +1353,14 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 			spacing: 3
 		});
 
-		this.symlinkResetButton = new Gtk.Button({ 
+		this.symlinkResetButton = new Gtk.Button({
 			label: _('Reset'),
 			sensitive: false
 		});
 		this.symlinkResetButton.connect('clicked', this.resetSymlinkTarget.bind(this));
 		symlinkButtonsBox.pack_start(this.symlinkResetButton, false, false, 0);
 
-		this.symlinkSaveButton = new Gtk.Button({ 
+		this.symlinkSaveButton = new Gtk.Button({
 			label: _('Save'),
 			sensitive: false
 		});
@@ -395,7 +1373,7 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 		previewControlBox.pack_start(new Gtk.Label({ label: '' }), true, true, 0);
 		contextsPreviewBox.pack_start(previewControlBox, false, false, 0);
 		editorBox.pack_start(contextsPreviewBox, false, false, 0);
-		
+
 		this.filePreviewBox = new Gtk.Box({
 			orientation: Gtk.Orientation.HORIZONTAL,
 			spacing: 3,
@@ -432,123 +1410,121 @@ this.symlinkTargetEntry.connect('key-press-event', this.onSymlinkTargetKeyPress.
 		this.window.show_all();
 	}
 
-// ==================== НАСТРОЙКА ГОРЯЧИХ КЛАВИШ ====================
-setupAccelerators() {
-    // Создаём группу акселераторов
-    let accelGroup = new Gtk.AccelGroup();
-    this.window.add_accel_group(accelGroup);
-    
-    // Клавиша Delete - удаление файла
-    accelGroup.connect(
-        Gdk.KEY_Delete,
-        Gtk.ModifierType.MOD1_MASK,
-        Gtk.AccelFlags.VISIBLE,
-        () => {
-            if (this.currentSelectedFile && this.currentIcon && this.deleteButton.get_sensitive()) {
-                this.deleteImageFile();
-            }
-            return true;
-        }
-    );
-    
-    // Клавиша Delete (альтернативный код) - на всякий случай
-    accelGroup.connect(
-        65535, // GDK_KEY_Delete
-        Gtk.ModifierType.MOD1_MASK,
-        Gtk.AccelFlags.VISIBLE,
-        () => {
-            if (this.currentSelectedFile && this.currentIcon && this.deleteButton.get_sensitive()) {
-                this.deleteImageFile();
-            }
-            return true;
-        }
-    );
-    
-    // Ctrl+Delete - тоже удаление (запасной вариант)
-    accelGroup.connect(
-        Gdk.KEY_Delete,
-        Gtk.ModifierType.CONTROL_MASK,
-        Gtk.AccelFlags.VISIBLE,
-        () => {
-            if (this.currentSelectedFile && this.currentIcon && this.deleteButton.get_sensitive()) {
-                this.deleteImageFile();
-            }
-            return true;
-        }
-    );
-}
+	// ==================== ОТКРЫТИЕ СВОЙСТВ ====================
+	onIconActivated(treeView, path, column) {
+		let [success, model, iter] = this.treeView.get_selection().get_selected();
+		if (!success || !iter) return;
 
-// ==================== ФИЛЬТРАЦИЯ СПИСКА ====================
-onFilterChanged() {
-    // Блокируем обновления, чтобы избежать циклических вызовов
-    if (this.isUpdating) return;
-    this.isUpdating = true;
-    
-    let filterText = this.filterEntry.get_text().toLowerCase();
-    
-    if (filterText === '') {
-        this.filteredIcons = this.icons;
-    } else {
-        this.filteredIcons = this.icons.filter(icon => 
-            icon.name.toLowerCase().includes(filterText)
-        );
+		let baseName = model.get_value(iter, 4);
+		if (!baseName) return;
+
+		this.openIconProperties(baseName);
+	}
+
+	openIconProperties(iconName) {
+		let win = new IconPropertiesWindow(this, iconName);
+	}
+
+	// ==================== ТОЧЕЧНОЕ ОБНОВЛЕНИЕ ЗНАЧКА ====================
+refreshIcon(iconName) {
+    let iconInfo = this.icons.find(i => i.name === iconName);
+    if (!iconInfo) return;
+
+    // Сохраняем список каталогов, где значок был раньше
+    let oldDirs = new Set(iconInfo.directories.keys());
+
+    iconInfo.directories.clear();
+    iconInfo.directorySizes.clear();
+    iconInfo.displayNames.clear();
+    iconInfo.symlinks.clear();
+    iconInfo.realFiles.clear();
+    iconInfo.hasSymlinks = false;
+    iconInfo.symlinkOnly = true;
+
+    let parsed = this.parseIndexTheme();
+    this.directoryInfo = parsed.directoryInfo;
+    let directoryInfo = parsed.directoryInfo;
+
+    let validExtensions = new Set(['.png', '.xpm', '.svg']);
+    let foundDirs = new Set();
+
+    // Проходим только по каталогам, где значок был или мог бы быть
+    let checkDirs = new Set([...oldDirs, ...parsed.directories]);
+
+    for (let dirName of checkDirs) {
+        let dir = Gio.File.new_for_path(this.themeDir + '/' + dirName);
+        if (!dir.query_exists(null)) continue;
+
+        let context = directoryInfo.get(dirName)?.context || 'Unknown';
+        let dirSize = directoryInfo.get(dirName)?.size ?? null;
+
+        let enumerator;
+        try {
+            enumerator = dir.enumerate_children(
+                'standard::name,standard::type,standard::is-symlink',
+                Gio.FileQueryInfoFlags.NONE, null);
+        } catch (e) { continue; }
+
+        let info;
+        while ((info = enumerator.next_file(null)) !== null) {
+            let name = info.get_name();
+            let dotIdx = name.lastIndexOf('.');
+            if (dotIdx < 0) continue;
+            let ext = name.substring(dotIdx).toLowerCase();
+            if (!validExtensions.has(ext)) continue;
+            if (name.substring(0, dotIdx) !== iconName) continue;
+
+            let isSymlink = info.get_is_symlink();
+            iconInfo.directories.set(dirName, context);
+            iconInfo.directorySizes.set(dirName, dirSize);
+            foundDirs.add(dirName);
+
+            let fileRelPath = dirName + '/' + name;
+            if (isSymlink) {
+                iconInfo.hasSymlinks = true;
+                try {
+                    let targetInfo = dir.get_child(name).query_info(
+                        'standard::symlink-target',
+                        Gio.FileQueryInfoFlags.NONE, null);
+                    let target = targetInfo.get_symlink_target();
+                    if (target) iconInfo.symlinks.set(fileRelPath, target);
+                } catch (e) { /* ignore */ }
+            } else {
+                iconInfo.symlinkOnly = false;
+                iconInfo.realFiles.set(fileRelPath, true);
+            }
+
+            let iconFilePath = this.themeDir + '/' + dirName + '/' + iconName + '.icon';
+            let iconFile = Gio.File.new_for_path(iconFilePath);
+            if (iconFile.query_exists(null)) {
+                try {
+                    let [ok, c] = iconFile.load_contents(null);
+                    if (ok) {
+                        let dn = this.extractDisplayName(imports.byteArray.toString(c));
+                        if (dn) iconInfo.displayNames.add(dn);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+        }
+        enumerator.close(null);
     }
-    
-    // Обновляем список иконок
+
     this.updateListDisplay();
-    
-    // Сбрасываем текущую выбранную иконку
-    this.currentIcon = null;
-    this.iconNameLabel.set_label(_('None'));
-    
-    // Сбрасываем редактор
-    this.displayNameEntry.set_text('');
-    this.displayNameEntry.set_sensitive(false);
-    this.saveButton.set_sensitive(false);
-    this.resetButton.set_sensitive(false);
-    this.warningLabel.set_label('');
-    
-    // Сбрасываем превью
-    this.previewImage.set_from_pixbuf(null);
-    this.previewButton.set_sensitive(false);
-    this.deleteButton.set_sensitive(false);
-    this.convertToSymlinkButton.set_sensitive(false);
-    this.filePreviewImage.set_from_pixbuf(null);
-    this.filePreviewLabel.set_label('');
-    
-    // Сбрасываем редактор симлинков
-    this.symlinkTargetEntry.set_text('');
-    this.symlinkTargetEntry.set_sensitive(false);
-    this.symlinkResetButton.set_sensitive(false);
-    this.symlinkSaveButton.set_sensitive(false);
-    this.symlinkStatusIcon.set_from_pixbuf(null);
-    this.symlinkStatusIcon.set_tooltip_text('');
-    this.currentSelectedFile = null;
-    this.currentSelectedIsSymlink = false;
-    this.currentSymlink = null;
-    this.symlinkOriginalTarget = null;
-    this.symlinkHasChanges = false;
-    
-    // Очищаем список файлов
-    this.filesListStore.clear();
-    
-    this.setStatus(formatString(_('Filtered: %d icons shown'), this.filteredIcons.length));
-    
-    this.isUpdating = false;
+    this.setStatus(formatString(_('Refreshed: %s'), iconName));
 }
 
 	// ==================== ОБНОВЛЕНИЕ ОТОБРАЖЕНИЯ СПИСКА ====================
 	updateListDisplay() {
 		this.listStore.clear();
-		
+
 		for (let icon of this.filteredIcons) {
 			let iter = this.listStore.append();
 			let color = 'black';
 			let reason = _('OK');
 			let contextText = '';
-			
+
 			let contexts = new Set(icon.directories.values());
-			
+
 			if (contexts.size > 1) {
 				contextText = _('Multiple');
 			} else if (contexts.size === 1) {
@@ -556,7 +1532,7 @@ onFilterChanged() {
 			} else {
 				contextText = _('None');
 			}
-			
+
 			let hasDifferentTargets = false;
 			if (icon.symlinks.size > 1) {
 				let targets = new Set();
@@ -566,7 +1542,7 @@ onFilterChanged() {
 				}
 				hasDifferentTargets = targets.size > 1;
 			}
-			
+
 			if (contexts.size > 1) {
 				color = 'red';
 				reason = _('Multiple contexts');
@@ -585,233 +1561,201 @@ onFilterChanged() {
 			} else if (icon.displayNames.size === 1) {
 				reason = 'DisplayName: ' + Array.from(icon.displayNames)[0];
 			}
-			
+
 			let displayName = '';
 			if (icon.displayNames.size === 1 && contexts.size === 1) {
 				displayName = ' - ' + Array.from(icon.displayNames)[0];
 			}
-			
-			this.listStore.set(iter, [0, 1, 2, 3], [icon.name + displayName, color, reason, contextText]);
+
+			this.listStore.set(iter, [0, 1, 2, 3, 4],
+				[icon.name + displayName, color, reason, contextText, icon.name]);
 		}
-		
+
 		this.listStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);
 	}
 
 	// ==================== ЗАГРУЗКА ТЕМЫ ====================
-loadTheme() {
-    // Блокируем обновления, чтобы избежать циклических вызовов
-    if (this.isUpdating) return;
-    this.isUpdating = true;
-    
-    this.setWindowModified(false);
-    
-    if (!this.themePath) {
-        this.isUpdating = false;
-        return;
-    }
+	loadTheme() {
+		if (this.isUpdating) return;
+		this.isUpdating = true;
 
-    try {
-        let file = Gio.File.new_for_path(this.themePath);
-        if (!file.query_exists(null)) {
-            this.showError(_('Theme file does not exist') + ': ' + this.themePath);
-            this.isUpdating = false;
-            return;
-        }
+		this.setWindowModified(false);
 
-        let info = file.query_info('standard::type', Gio.FileQueryInfoFlags.NONE, null);
-        if (info.get_file_type() === Gio.FileType.DIRECTORY) {
-            this.themeDir = file.get_path();
-            let indexFile = file.get_child('index.theme');
-            if (!indexFile.query_exists(null)) {
-                this.showError(_('Directory does not contain index.theme'));
-                this.isUpdating = false;
-                return;
-            }
-        } else if (file.get_basename() === 'index.theme') {
-            this.themeDir = file.get_parent().get_path();
-        } else {
-            this.showError(_('Invalid theme file'));
-            this.isUpdating = false;
-            return;
-        }
-
-        this.scanIcons();
-        // Применяем фильтр, если в строке что-то написано
-        this.onFilterChanged();
-
-        
-        // Сбрасываем текущую выбранную иконку
-        this.currentIcon = null;
-        this.iconNameLabel.set_label(_('None'));
-        
-        // Сбрасываем редактор
-        this.displayNameEntry.set_text('');
-        this.displayNameEntry.set_sensitive(false);
-        this.saveButton.set_sensitive(false);
-        this.resetButton.set_sensitive(false);
-        this.warningLabel.set_label('');
-        
-        // Сбрасываем превью
-        this.previewImage.set_from_pixbuf(null);
-        this.previewButton.set_sensitive(false);
-        this.deleteButton.set_sensitive(false);
-        this.convertToSymlinkButton.set_sensitive(false);
-        this.filePreviewImage.set_from_pixbuf(null);
-        this.filePreviewLabel.set_label('');
-        
-        // Сбрасываем редактор симлинков
-        this.symlinkTargetEntry.set_text('');
-        this.symlinkTargetEntry.set_sensitive(false);
-        this.symlinkResetButton.set_sensitive(false);
-        this.symlinkSaveButton.set_sensitive(false);
-        this.symlinkStatusIcon.set_from_pixbuf(null);
-        this.symlinkStatusIcon.set_tooltip_text('');
-        this.currentSelectedFile = null;
-        this.currentSelectedIsSymlink = false;
-        this.currentSymlink = null;
-        this.symlinkOriginalTarget = null;
-        this.symlinkHasChanges = false;
-        
-        // Очищаем список файлов
-        this.filesListStore.clear();
-        
-        this.setStatus(formatString(_('Loaded %d icons'), this.icons.length));
-        
-    } catch (e) {
-        this.showError(_('Error loading theme') + ': ' + e.message);
-    }
-    
-    // Разблокируем обновления
-    this.isUpdating = false;
-}
-
-	// ==================== СКАНИРОВАНИЕ ЗНАЧКОВ ====================
-	scanIcons() {
-		this.icons = [];
-		this.listStore.clear();
+		if (!this.themePath) {
+			this.isUpdating = false;
+			return;
+		}
 
 		try {
-			let indexFile = Gio.File.new_for_path(this.themeDir + '/index.theme');
-			let [success, contents] = indexFile.load_contents(null);
-			
-			if (!success) {
-				this.showError(_('Could not read index.theme'));
+			let file = Gio.File.new_for_path(this.themePath);
+			if (!file.query_exists(null)) {
+				this.showError(_('Theme file does not exist') + ': ' + this.themePath);
+				this.isUpdating = false;
 				return;
 			}
 
-			let text = imports.byteArray.toString(contents);
-			let directories = [];
-			let directoryContexts = new Map();
-			let lines = text.split('\n');
-			let currentSection = '';
-			let inDirectoriesSection = false;
-			
-			for (let line of lines) {
-				line = line.trim();
-				if (line === '[Icon Theme]') {
-					inDirectoriesSection = true;
-					currentSection = 'Icon Theme';
-				} else if (line.startsWith('[') && line.endsWith(']')) {
-					currentSection = line.substring(1, line.length - 1);
-					inDirectoriesSection = (line === '[Icon Theme]');
-				} else if (inDirectoriesSection && line.startsWith('Directories=')) {
-					let dirs = line.substring('Directories='.length).split(',');
-					directories.push(...dirs.map(d => d.trim()));
-				} else if (currentSection !== '' && line.includes('=')) {
-					let [key, value] = line.split('=', 2);
-					key = key.trim();
-					value = value.trim();
-					if (key === 'Context') {
-						directoryContexts.set(currentSection, value);
-					}
+			let info = file.query_info('standard::type', Gio.FileQueryInfoFlags.NONE, null);
+			if (info.get_file_type() === Gio.FileType.DIRECTORY) {
+				this.themeDir = file.get_path();
+				let indexFile = file.get_child('index.theme');
+				if (!indexFile.query_exists(null)) {
+					this.showError(_('Directory does not contain index.theme'));
+					this.isUpdating = false;
+					return;
 				}
+			} else if (file.get_basename() === 'index.theme') {
+				this.themeDir = file.get_parent().get_path();
+			} else {
+				this.showError(_('Invalid theme file'));
+				this.isUpdating = false;
+				return;
 			}
 
-			let iconMap = new Map();
-			let validExtensions = new Set(['.png', '.xpm', '.svg']);
-			
-			for (let dirName of directories) {
-				let dir = Gio.File.new_for_path(this.themeDir + '/' + dirName);
-				if (!dir.query_exists(null)) continue;
-				
-				let context = directoryContexts.get(dirName) || 'Unknown';
-				
-				let enumerator = dir.enumerate_children('standard::name,standard::type,standard::is-symlink', 
-					Gio.FileQueryInfoFlags.NONE, null);
-				
-				let info;
-				while ((info = enumerator.next_file(null)) !== null) {
-					let name = info.get_name();
-					let type = info.get_file_type();
-					let isSymlink = info.get_is_symlink();
-					
-					if (type === Gio.FileType.REGULAR || type === Gio.FileType.SYMBOLIC_LINK) {
-						let ext = name.substring(name.lastIndexOf('.'));
-						if (validExtensions.has(ext.toLowerCase())) {
-							let baseName = name.substring(0, name.lastIndexOf('.'));
-							
-							if (!iconMap.has(baseName)) {
-								iconMap.set(baseName, {
-									name: baseName,
-									directories: new Map(),
-									displayNames: new Set(),
-									symlinks: new Map(),
-									realFiles: new Map(),
-									hasSymlinks: false,
-									symlinkOnly: true
-								});
-							}
-							
-							let iconInfo = iconMap.get(baseName);
-							iconInfo.directories.set(dirName, context);
-							
-							if (isSymlink) {
-								iconInfo.hasSymlinks = true;
-								try {
-									let symlinkFile = dir.get_child(name);
-									let targetInfo = symlinkFile.query_info('standard::symlink-target', Gio.FileQueryInfoFlags.NONE, null);
-									let symlinkTarget = targetInfo.get_symlink_target();
-									if (symlinkTarget) {
-										iconInfo.symlinks.set(dirName + '/' + name, symlinkTarget);
-									}
-								} catch (e) {
-									// Игнорируем ошибки чтения симлинков
-								}
-							} else {
-								iconInfo.symlinkOnly = false;
-								iconInfo.realFiles.set(dirName + '/' + name, true);
-							}
-							
-							let iconFilePath = this.themeDir + '/' + dirName + '/' + baseName + '.icon';
-							let iconFile = Gio.File.new_for_path(iconFilePath);
-							if (iconFile.query_exists(null)) {
-								let [success, contents] = iconFile.load_contents(null);
-								if (success) {
-									let iconText = imports.byteArray.toString(contents);
-									let displayName = this.extractDisplayName(iconText);
-									if (displayName) {
-										iconInfo.displayNames.add(displayName);
-									}
-								}
-							}
-						}
-					}
-				}
-				enumerator.close(null);
-			}
+			this.scanIcons();
+			this.onFilterChanged();
 
-			this.icons = Array.from(iconMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-			this.filteredIcons = this.icons;
-			
-			this.updateListDisplay();
-      // Применяем фильтр
-      this.onFilterChanged();
+			this.currentIcon = null;
+			this.iconNameLabel.set_label(_('None'));
+
+			this.displayNameEntry.set_text('');
+			this.displayNameEntry.set_sensitive(false);
+			this.saveButton.set_sensitive(false);
+			this.resetButton.set_sensitive(false);
+			this.warningLabel.set_label('');
+
+			this.previewImage.set_from_pixbuf(null);
+			this.previewButton.set_sensitive(false);
+			this.deleteButton.set_sensitive(false);
+			this.convertToSymlinkButton.set_sensitive(false);
+			this.filePreviewImage.set_from_pixbuf(null);
+			this.filePreviewLabel.set_label('');
+
+			this.symlinkTargetEntry.set_text('');
+			this.symlinkTargetEntry.set_sensitive(false);
+			this.symlinkResetButton.set_sensitive(false);
+			this.symlinkSaveButton.set_sensitive(false);
+			this.symlinkStatusIcon.set_from_pixbuf(null);
+			this.symlinkStatusIcon.set_tooltip_text('');
+			this.currentSelectedFile = null;
+			this.currentSelectedIsSymlink = false;
+			this.currentSymlink = null;
+			this.symlinkOriginalTarget = null;
+			this.symlinkHasChanges = false;
+
+			this.filesListStore.clear();
+
 			this.setStatus(formatString(_('Loaded %d icons'), this.icons.length));
 
 		} catch (e) {
-			this.showError(_('Error scanning') + ': ' + e.message);
+			this.showError(_('Error loading theme') + ': ' + e.message);
 		}
+
+		this.isUpdating = false;
 	}
+
+	// ==================== СКАНИРОВАНИЕ ЗНАЧКОВ ====================
+scanIcons() {
+    this.icons = [];
+    this.listStore.clear();
+
+    // Единственный парсинг index.theme
+    let parsed = this.parseIndexTheme();
+    let directories = parsed.directories;
+    let directoryInfo = parsed.directoryInfo;
+    this.directoryInfo = directoryInfo;
+
+    let validExtensions = new Set(['.png', '.xpm', '.svg']);
+    let iconMap = new Map();
+
+    for (let dirName of directories) {
+        let dir = Gio.File.new_for_path(this.themeDir + '/' + dirName);
+        if (!dir.query_exists(null)) continue;
+
+        let context = directoryInfo.get(dirName)?.context || 'Unknown';
+        let dirSize = directoryInfo.get(dirName)?.size ?? null;
+
+        let enumerator;
+        try {
+            enumerator = dir.enumerate_children(
+                'standard::name,standard::type,standard::is-symlink',
+                Gio.FileQueryInfoFlags.NONE, null);
+        } catch (e) {
+            continue;
+        }
+
+        let info;
+        while ((info = enumerator.next_file(null)) !== null) {
+            let name = info.get_name();
+            let type = info.get_file_type();
+            let isSymlink = info.get_is_symlink();
+
+            if (type !== Gio.FileType.REGULAR && type !== Gio.FileType.SYMBOLIC_LINK)
+                continue;
+
+            let dotIdx = name.lastIndexOf('.');
+            if (dotIdx < 0) continue;
+            let ext = name.substring(dotIdx).toLowerCase();
+            if (!validExtensions.has(ext)) continue;
+
+            let baseName = name.substring(0, dotIdx);
+
+            let iconInfo = iconMap.get(baseName);
+            if (!iconInfo) {
+                iconInfo = {
+                    name: baseName,
+                    directories: new Map(),
+                    directorySizes: new Map(),
+                    displayNames: new Set(),
+                    symlinks: new Map(),
+                    realFiles: new Map(),
+                    hasSymlinks: false,
+                    symlinkOnly: true
+                };
+                iconMap.set(baseName, iconInfo);
+            }
+
+            iconInfo.directories.set(dirName, context);
+            iconInfo.directorySizes.set(dirName, dirSize);
+
+            let fileRelPath = dirName + '/' + name;
+
+            if (isSymlink) {
+                iconInfo.hasSymlinks = true;
+                try {
+                    let targetInfo = dir.get_child(name).query_info(
+                        'standard::symlink-target',
+                        Gio.FileQueryInfoFlags.NONE, null);
+                    let target = targetInfo.get_symlink_target();
+                    if (target) iconInfo.symlinks.set(fileRelPath, target);
+                } catch (e) { /* ignore */ }
+            } else {
+                iconInfo.symlinkOnly = false;
+                iconInfo.realFiles.set(fileRelPath, true);
+            }
+
+            // .icon файл с DisplayName
+            let iconFilePath = this.themeDir + '/' + dirName + '/' + baseName + '.icon';
+            let iconFile = Gio.File.new_for_path(iconFilePath);
+            if (iconFile.query_exists(null)) {
+                try {
+                    let [ok, c] = iconFile.load_contents(null);
+                    if (ok) {
+                        let dn = this.extractDisplayName(imports.byteArray.toString(c));
+                        if (dn) iconInfo.displayNames.add(dn);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+        }
+        enumerator.close(null);
+    }
+
+    this.icons = Array.from(iconMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    this.filteredIcons = this.icons;
+
+    this.updateListDisplay();
+    this.onFilterChanged();
+    this.setStatus(formatString(_('Loaded %d icons'), this.icons.length));
+}
 
 	// ==================== ИЗВЛЕЧЕНИЕ DISPLAYNAME ====================
 	extractDisplayName(iconText) {
@@ -824,174 +1768,205 @@ loadTheme() {
 		return null;
 	}
 
-// ==================== ВЫБОР ЗНАЧКА ====================
-onIconSelected() {
-    // Если идёт обновление, игнорируем сигнал
-    if (this.isUpdating) return;
-    
-    let [success, model, iter] = this.treeView.get_selection().get_selected();
-    if (!success || !iter) return;
-    
-    let nameWithSuffix = model.get_value(iter, 0);
-    let baseName = nameWithSuffix.split(' - ')[0].split(' [')[0];
-    
-    // Если это та же иконка, ничего не делаем
-    if (this.currentIcon && this.currentIcon.name === baseName) {
-        return;
-    }
-    
-    // Проверяем, есть ли текст в фильтре
-    let filterText = this.filterEntry.get_text().trim();
-    let hasFilter = filterText !== '';
-    
-    if (hasFilter) {
-        // Если фильтр активен - используем задержку (debounce)
-        if (this.iconSelectTimer) {
-            GLib.source_remove(this.iconSelectTimer);
-            this.iconSelectTimer = null;
-        }
-        
-        this.iconSelectTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
-            this.iconSelectTimer = null;
-            this.doIconSelected(baseName);
-            return false;
-        });
-    } else {
-        // Если фильтр пустой - выполняем сразу
-        this.doIconSelected(baseName);
-    }
-}
+	// ==================== ФИЛЬТРАЦИЯ СПИСКА ====================
+	onFilterChanged() {
+		if (this.isUpdating) return;
+		this.isUpdating = true;
 
-// ==================== РЕАЛЬНОЕ ВЫПОЛНЕНИЕ ВЫБОРА ЗНАЧКА ====================
-doIconSelected(baseName) {
-    this.currentIcon = this.filteredIcons.find(icon => icon.name === baseName);
-    if (!this.currentIcon) return;
+		let filterText = this.filterEntry.get_text().toLowerCase();
 
-    this.iconNameLabel.set_label(this.currentIcon.name);
-    
-    let contexts = new Set(this.currentIcon.directories.values());
-    let canEdit = contexts.size === 1;
-    this.displayNameEntry.set_sensitive(canEdit);
-    this.saveButton.set_sensitive(canEdit);
-    this.resetButton.set_sensitive(canEdit);
-    this.advancedButton.set_sensitive(false);
+		if (filterText === '') {
+			this.filteredIcons = this.icons;
+		} else {
+			this.filteredIcons = this.icons.filter(icon =>
+				icon.name.toLowerCase().includes(filterText)
+			);
+		}
 
-    if (contexts.size > 1) {
-        this.warningLabel.set_label('<span color="red">' + _('Icon has different contexts!') + '</span>');
-    } else if (this.currentIcon.displayNames.size > 1) {
-        this.warningLabel.set_label('<span color="orange">' + _('DisplayName differs between files!') + '</span>');
-    } else {
-        this.warningLabel.set_label('');
-    }
+		this.updateListDisplay();
 
-    // Полный сброс редактора симлинков
-    this.symlinkTargetEntry.set_text('');
-    this.symlinkTargetEntry.set_sensitive(false);
-    this.symlinkResetButton.set_sensitive(false);
-    this.symlinkSaveButton.set_sensitive(false);
-    this.symlinkStatusIcon.set_from_pixbuf(null);
-    this.symlinkStatusIcon.set_tooltip_text('');
-    this.currentSelectedFile = null;
-    this.currentSelectedIsSymlink = false;
-    this.currentSymlink = null;
-    this.symlinkOriginalTarget = null;
-    this.symlinkHasChanges = false;
+		this.currentIcon = null;
+		this.iconNameLabel.set_label(_('None'));
 
-    // Сброс превью
-    this.previewImage.set_from_pixbuf(null);
-    this.previewButton.set_sensitive(false);
-    this.deleteButton.set_sensitive(false);
-    this.convertToSymlinkButton.set_sensitive(false);
-    this.filePreviewImage.set_from_pixbuf(null);
-    this.filePreviewLabel.set_label('');
+		this.displayNameEntry.set_text('');
+		this.displayNameEntry.set_sensitive(false);
+		this.saveButton.set_sensitive(false);
+		this.resetButton.set_sensitive(false);
+		this.warningLabel.set_label('');
 
-    // Обновляем список файлов
-    this.updateFilesList();
-    
-    // Автоматически выбираем первый файл в списке
-    this.selectFirstFile();
-    
-    this.loadCurrentIconFile();
-}
+		this.previewImage.set_from_pixbuf(null);
+		this.previewButton.set_sensitive(false);
+		this.deleteButton.set_sensitive(false);
+		this.convertToSymlinkButton.set_sensitive(false);
+		this.filePreviewImage.set_from_pixbuf(null);
+		this.filePreviewLabel.set_label('');
 
-// ==================== ОБРАБОТКА КЛАВИШ В ПОЛЕ РЕДАКТИРОВАНИЯ СИМЛИНКА ====================
-onSymlinkTargetKeyPress(entry, event) {
-    let keyval = event.get_keyval()[1];
-    
-    // Enter - сохранить
-    if (keyval === 65293 || keyval === 65421) { // GDK_KEY_Return или GDK_KEY_KP_Enter
-        if (this.symlinkSaveButton.get_sensitive()) {
-            this.saveSymlinkTarget();
-        }
-        return true; // Поглощаем событие
-    }
-    
-    // Escape - сбросить
-    if (keyval === 65307) { // GDK_KEY_Escape
-        this.resetSymlinkTarget();
-        // Снимаем фокус с поля ввода
-        this.symlinkTargetEntry.grab_focus();
-        // Передаём фocus обратно на дерево файлов
-        this.filesTreeView.grab_focus();
-        return true;
-    }
-    
-    return false; // Позволяем обработать событие дальше
-}
+		this.symlinkTargetEntry.set_text('');
+		this.symlinkTargetEntry.set_sensitive(false);
+		this.symlinkResetButton.set_sensitive(false);
+		this.symlinkSaveButton.set_sensitive(false);
+		this.symlinkStatusIcon.set_from_pixbuf(null);
+		this.symlinkStatusIcon.set_tooltip_text('');
+		this.currentSelectedFile = null;
+		this.currentSelectedIsSymlink = false;
+		this.currentSymlink = null;
+		this.symlinkOriginalTarget = null;
+		this.symlinkHasChanges = false;
 
-// ==================== ВЫБОР ПЕРВОГО ФАЙЛА В СПИСКЕ ====================
-selectFirstFile() {
-    if (this.isUpdating) return;
-    
-    try {
-        let iter = this.filesListStore.get_iter_first();
-        if (iter) {
-            let path = new Gtk.TreePath();
-            path.append_index(0);
-            this.filesTreeView.set_cursor(path, null, false);
-        }
-    } catch (e) {
-        // Игнорируем ошибки - выводим только в терминал
-        log('Warning: Could not select first file: ' + e.message);
-    }
-}
+		this.filesListStore.clear();
+
+		this.setStatus(formatString(_('Filtered: %d icons shown'), this.filteredIcons.length));
+
+		this.isUpdating = false;
+	}
+
+	// ==================== ВЫБОР ЗНАЧКА ====================
+	onIconSelected() {
+		if (this.isUpdating) return;
+
+		let [success, model, iter] = this.treeView.get_selection().get_selected();
+		if (!success || !iter) return;
+
+		let baseName = model.get_value(iter, 4);
+		if (!baseName) return;
+
+		if (this.currentIcon && this.currentIcon.name === baseName) {
+			return;
+		}
+
+		let filterText = this.filterEntry.get_text().trim();
+		let hasFilter = filterText !== '';
+
+		if (hasFilter) {
+			if (this.iconSelectTimer) {
+				GLib.source_remove(this.iconSelectTimer);
+				this.iconSelectTimer = null;
+			}
+
+			this.iconSelectTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
+				this.iconSelectTimer = null;
+				this.doIconSelected(baseName);
+				return false;
+			});
+		} else {
+			this.doIconSelected(baseName);
+		}
+	}
+
+	doIconSelected(baseName) {
+		this.currentIcon = this.filteredIcons.find(icon => icon.name === baseName);
+		if (!this.currentIcon) return;
+
+		this.iconNameLabel.set_label(this.currentIcon.name);
+
+		let contexts = new Set(this.currentIcon.directories.values());
+		let canEdit = contexts.size === 1;
+		this.displayNameEntry.set_sensitive(canEdit);
+		this.saveButton.set_sensitive(canEdit);
+		this.resetButton.set_sensitive(canEdit);
+		this.advancedButton.set_sensitive(false);
+
+		if (contexts.size > 1) {
+			this.warningLabel.set_label('<span color="red">' + _('Icon has different contexts!') + '</span>');
+		} else if (this.currentIcon.displayNames.size > 1) {
+			this.warningLabel.set_label('<span color="orange">' + _('DisplayName differs between files!') + '</span>');
+		} else {
+			this.warningLabel.set_label('');
+		}
+
+		this.symlinkTargetEntry.set_text('');
+		this.symlinkTargetEntry.set_sensitive(false);
+		this.symlinkResetButton.set_sensitive(false);
+		this.symlinkSaveButton.set_sensitive(false);
+		this.symlinkStatusIcon.set_from_pixbuf(null);
+		this.symlinkStatusIcon.set_tooltip_text('');
+		this.currentSelectedFile = null;
+		this.currentSelectedIsSymlink = false;
+		this.currentSymlink = null;
+		this.symlinkOriginalTarget = null;
+		this.symlinkHasChanges = false;
+
+		this.previewImage.set_from_pixbuf(null);
+		this.previewButton.set_sensitive(false);
+		this.deleteButton.set_sensitive(false);
+		this.convertToSymlinkButton.set_sensitive(false);
+		this.filePreviewImage.set_from_pixbuf(null);
+		this.filePreviewLabel.set_label('');
+
+		this.updateFilesList();
+		this.selectFirstFile();
+		this.loadCurrentIconFile();
+	}
+
+	// ==================== ВЫБОР ПЕРВОГО ФАЙЛА В СПИСКЕ ====================
+	selectFirstFile() {
+		if (this.isUpdating) return;
+		try {
+			let iter = this.filesListStore.get_iter_first();
+			if (iter) {
+				let path = new Gtk.TreePath();
+				path.append_index(0);
+				this.filesTreeView.set_cursor(path, null, false);
+			}
+		} catch (e) {
+			log('Warning: Could not select first file: ' + e.message);
+		}
+	}
+
+	// ==================== ОБНОВЛЕНИЕ СПИСКА ФАЙЛОВ ====================
+	updateFilesList() {
+		this.filesListStore.clear();
+
+		if (!this.currentIcon) return;
+
+		for (let [filePath, exists] of this.currentIcon.realFiles) {
+			if (exists) {
+				let iter = this.filesListStore.append();
+				this.filesListStore.set(iter, [0, 1, 2], [filePath, '(' + _('file') + ')', 'black']);
+			}
+		}
+
+		for (let [symlinkPath, target] of this.currentIcon.symlinks) {
+			let iter = this.filesListStore.append();
+			this.filesListStore.set(iter, [0, 1, 2], [symlinkPath, target, 'blue']);
+		}
+	}
 
 	// ==================== ВЫБОР ФАЙЛА ====================
 	onFileSelected() {
-    // Если идёт обновление, игнорируем сигнал
-    if (this.isUpdating) return;
-    
-    let [success, model, iter] = this.filesTreeView.get_selection().get_selected();
-    if (!success || !iter || !this.currentIcon) return;
-		
+		if (this.isUpdating) return;
+
+		let [success, model, iter] = this.filesTreeView.get_selection().get_selected();
+		if (!success || !iter || !this.currentIcon) return;
+
 		let filePath = model.get_value(iter, 0);
 		let target = model.get_value(iter, 1);
 		let isSymlink = target !== '' && target !== '(' + _('file') + ')';
-		
+
 		this.currentSelectedFile = filePath;
 		this.currentSelectedIsSymlink = isSymlink;
 		this.symlinkHasChanges = false;
-		
+
 		this.previewButton.set_sensitive(true);
 		this.deleteButton.set_sensitive(true);
 		this.convertToSymlinkButton.set_sensitive(true);
-		
+
 		if (isSymlink) {
 			this.convertToSymlinkButton.set_label(_('Symlink → File'));
 			this.currentSymlink = filePath;
 			this.symlinkOriginalTarget = target;
-			
+
 			this.symlinkTargetEntry.set_text(target);
 			this.symlinkTargetEntry.set_sensitive(true);
 			this.symlinkResetButton.set_sensitive(true);
 			this.symlinkSaveButton.set_sensitive(false);
-			
+
 			this.checkSymlinkTarget(target);
 		} else {
 			this.convertToSymlinkButton.set_label(_('File → Symlink'));
 			this.currentSymlink = null;
 			this.symlinkOriginalTarget = null;
-			
+
 			this.symlinkTargetEntry.set_text('');
 			this.symlinkTargetEntry.set_sensitive(false);
 			this.symlinkResetButton.set_sensitive(false);
@@ -999,27 +1974,27 @@ selectFirstFile() {
 			this.symlinkStatusIcon.set_from_pixbuf(null);
 			this.symlinkStatusIcon.set_tooltip_text('');
 		}
-		
+
 		let parts = filePath.split('/');
 		let dir = parts[0];
 		this.currentPreviewDir = dir;
-		
+
 		this.loadFilePreview(this.themeDir + '/' + filePath);
 		this.loadPreview(dir, this.currentIcon.name);
 	}
 
-	// ==================== ДВОЙНОЙ КЛИК ПО ФАЙЛУ ====================
+	// ==================== ДВОЙНОЙ КЛИК ПО ФАЙЛУ (в правом списке) ====================
 	onFileActivated(treeView, path, column) {
 		if (!this.currentSelectedFile || !this.currentIcon) return;
-		
+
 		let fullPath = this.themeDir + '/' + this.currentSelectedFile;
 		let file = Gio.File.new_for_path(fullPath);
-		
+
 		if (!file.query_exists(null)) {
 			this.showError('File does not exist: ' + fullPath);
 			return;
 		}
-		
+
 		this.showFileInManager(fullPath);
 	}
 
@@ -1027,19 +2002,16 @@ selectFirstFile() {
 	showFileInManager(filePath) {
 		try {
 			let file = Gio.File.new_for_path(filePath);
-			
+
 			try {
 				let launcher = Gio.AppInfo.create_from_commandline(
-					'xdg-open', 
-					null, 
-					Gio.AppInfoCreateFlags.SUPPORTS_URIS
-				);
-				
+					'xdg-open', null, Gio.AppInfoCreateFlags.SUPPORTS_URIS);
+
 				let parentDir = file.get_parent();
 				if (parentDir) {
 					let args = [parentDir.get_uri()];
 					launcher.launch_uris(args, null);
-					
+
 					GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
 						this.selectFileViaDBus(filePath);
 						return false;
@@ -1048,18 +2020,16 @@ selectFirstFile() {
 			} catch (e) {
 				this.selectFileViaDBus(filePath);
 			}
-			
 		} catch (e) {
 			this.showError('Error opening file manager: ' + e.message);
 		}
 	}
 
-	// ==================== ВЫДЕЛИТЬ ФАЙЛ ЧЕРЕЗ D-BUS ====================
 	selectFileViaDBus(filePath) {
 		try {
 			let file = Gio.File.new_for_path(filePath);
 			let uri = file.get_uri();
-			
+
 			let [success, pid, stdin, stdout, stderr] = GLib.spawn_async_with_pipes(
 				null,
 				[
@@ -1077,24 +2047,19 @@ selectFirstFile() {
 				GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD,
 				null
 			);
-			
+
 			if (success) {
 				let output = new Gio.DataInputStream({
-					base_stream: new Gio.UnixInputStream({fd: stdout})
+					base_stream: new Gio.UnixInputStream({ fd: stdout })
 				});
-				
+
 				output.read_line_async(GLib.PRIORITY_DEFAULT, null, (source, result) => {
 					try {
 						let [line] = source.read_line_finish(result);
-						if (line) {
-							log('D-Bus response: ' + line);
-						}
-					} catch (e) {
-						// Игнорируем ошибки чтения
-					}
+						if (line) log('D-Bus response: ' + line);
+					} catch (e) { /* ignore */ }
 				});
 			}
-			
 		} catch (e) {
 			try {
 				let file = Gio.File.new_for_path(filePath);
@@ -1109,101 +2074,10 @@ selectFirstFile() {
 		}
 	}
 
-	// ==================== ОБНОВЛЕНИЕ СПИСКА ФАЙЛОВ ====================
-updateFilesList() {
-    // Не вызываем unselect_all()
-    this.filesListStore.clear();
-    
-    if (!this.currentIcon) return;
-    
-    for (let [filePath, exists] of this.currentIcon.realFiles) {
-        if (exists) {
-            let iter = this.filesListStore.append();
-            this.filesListStore.set(iter, [0, 1, 2], [filePath, '(' + _('file') + ')', 'black']);
-        }
-    }
-    
-    for (let [symlinkPath, target] of this.currentIcon.symlinks) {
-        let iter = this.filesListStore.append();
-        this.filesListStore.set(iter, [0, 1, 2], [symlinkPath, target, 'blue']);
-    }
-}
-
-// ==================== ОБНОВЛЕНИЕ СТАТУСА ТЕКУЩЕЙ ИКОНКИ ====================
-updateCurrentIconStatus() {
-    if (!this.currentIcon) return;
-    
-    try {
-        let iter = this.listStore.get_iter_first();
-        while (iter) {
-            let nameWithSuffix = this.listStore.get_value(iter, 0);
-            let baseName = nameWithSuffix.split(' - ')[0].split(' [')[0];
-            if (baseName === this.currentIcon.name) {
-                let color = 'black';
-                let reason = _('OK');
-                let contextText = '';
-                
-                let contexts = new Set(this.currentIcon.directories.values());
-                
-                if (contexts.size > 1) {
-                    contextText = _('Multiple');
-                } else if (contexts.size === 1) {
-                    contextText = Array.from(contexts)[0];
-                } else {
-                    contextText = _('None');
-                }
-                
-                let hasDifferentTargets = false;
-                if (this.currentIcon.symlinks.size > 1) {
-                    let targets = new Set();
-                    for (let target of this.currentIcon.symlinks.values()) {
-                        let normalizedTarget = this.normalizeSymlinkTarget(target);
-                        targets.add(normalizedTarget);
-                    }
-                    hasDifferentTargets = targets.size > 1;
-                }
-                
-                if (contexts.size > 1) {
-                    color = 'red';
-                    reason = _('Multiple contexts');
-                } else if (this.currentIcon.displayNames.size > 1) {
-                    color = 'orange';
-                    reason = _('Different DisplayName');
-                } else if (hasDifferentTargets) {
-                    color = 'magenta';
-                    reason = _('Different symlink targets');
-                } else if (this.currentIcon.symlinkOnly) {
-                    color = 'purple';
-                    reason = _('Symlinks only');
-                } else if (this.currentIcon.hasSymlinks) {
-                    color = 'blue';
-                    reason = _('Has symlinks');
-                } else if (this.currentIcon.displayNames.size === 1) {
-                    reason = 'DisplayName: ' + Array.from(this.currentIcon.displayNames)[0];
-                }
-                
-                let displayName = '';
-                if (this.currentIcon.displayNames.size === 1 && contexts.size === 1) {
-                    displayName = ' - ' + Array.from(this.currentIcon.displayNames)[0];
-                }
-                
-                this.listStore.set(iter, [0, 1, 2, 3], 
-                    [this.currentIcon.name + displayName, color, reason, contextText]);
-                
-                return true;
-            }
-            iter = this.listStore.iter_next(iter);
-        }
-    } catch (e) {
-        log('Warning: Could not update icon status: ' + e.message);
-    }
-    return false;
-}
-
 	// ==================== ПРЕОБРАЗОВАНИЕ ФАЙЛА/СИМЛИНКА ====================
 	convertToSymlink() {
 		if (!this.currentSelectedFile || !this.currentIcon) return;
-		
+
 		if (this.currentSelectedIsSymlink) {
 			this.convertToFile();
 		} else {
@@ -1211,163 +2085,141 @@ updateCurrentIconStatus() {
 		}
 	}
 
-	// ==================== ПРЕОБРАЗОВАНИЕ ФАЙЛА В СИМЛИНК ====================
-// ==================== ПРЕОБРАЗОВАНИЕ ФАЙЛА В СИМЛИНК С ДИАЛОГОМ ====================
-convertSymlinkToFile() {
-    if (!this.currentSelectedFile || !this.currentIcon) return;
-    
-    // Создаём диалог
-    let dialog = new Gtk.Dialog({
-        title: _('Convert to symlink'),
-        transient_for: this.window,
-        modal: true,
-        destroy_with_parent: true
-    });
-    
-    // Добавляем кнопки
-    dialog.add_button(_('Cancel'), Gtk.ResponseType.CANCEL);
-    dialog.add_button(_('OK'), Gtk.ResponseType.OK);
-    dialog.set_default_response(Gtk.ResponseType.OK);
-    
-    // Создаём содержимое диалога
-    let contentBox = dialog.get_content_area();
-    contentBox.set_spacing(3);
-    contentBox.set_margin_start(5);
-    contentBox.set_margin_end(5);
-    contentBox.set_margin_top(5);
-    contentBox.set_margin_bottom(5);
-    
-    // Текст с информацией о файле
-    let infoLabel = new Gtk.Label({
-        label: formatString(_('File "%s" will be replaced with a symlink. Enter the target path:'), this.currentSelectedFile),
-        halign: Gtk.Align.START,
-        wrap: true,
-        selectable: true
-    });
-    contentBox.pack_start(infoLabel, false, false, 0);
-    
-    // Поле ввода цели
-    let targetEntry = new Gtk.Entry({
-        hexpand: true,
-        placeholder_text: _('Enter target path...')
-    });
-    
-    // Индикатор статуса цели
-    let statusImage = new Gtk.Image();
-    statusImage.set_size_request(16, 16);
-    statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-    statusImage.set_tooltip_text(_('Enter a target path'));
-    
-    // Контейнер для поля ввода и индикатора
-    let entryBox = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 3
-    });
-    entryBox.pack_start(targetEntry, true, true, 0);
-    entryBox.pack_start(statusImage, false, false, 0);
-    contentBox.pack_start(entryBox, false, false, 0);
-    
-    // Предлагаем цель по умолчанию
-    let defaultTarget = this.suggestSymlinkTarget(this.currentSelectedFile);
-    targetEntry.set_text(defaultTarget);
-    
-// Функция проверки цели
-let targetCheckFunction = () => {
-    let target = targetEntry.get_text().trim();
-    if (!target) {
-        statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-        statusImage.set_tooltip_text(_('Target not specified'));
-        dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
-        return;
-    }
-    
-    try {
-        let symlinkPath = this.themeDir + '/' + this.currentSelectedFile;
-        let symlinkDir = Gio.File.new_for_path(symlinkPath).get_parent();
-        let targetFile = symlinkDir.get_child(target);
-        
-        if (target.startsWith('./')) {
-            targetFile = symlinkDir.get_child(target.substring(2));
-        }
-        
-        if (target.includes('../')) {
-            targetFile = symlinkDir.resolve_relative_path(target);
-        }
-        
-        if (!targetFile.query_exists(null)) {
-            statusImage.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
-            statusImage.set_tooltip_text(_('File does not exist'));
-            dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
-            return;
-        }
-        
-        // Проверяем тип файла
-        let targetInfo = targetFile.query_info('standard::type,standard::is-symlink', Gio.FileQueryInfoFlags.NONE, null);
-        let fileType = targetInfo.get_file_type();
-        let isSymlink = targetInfo.get_is_symlink();
-        
-        if (isSymlink || fileType === Gio.FileType.SYMBOLIC_LINK) {
-            statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-            statusImage.set_tooltip_text(_('Target is a symlink (indirect reference)'));
-            dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
-            return;
-        } else if (fileType === Gio.FileType.REGULAR) {
-            statusImage.set_from_icon_name('dialog-ok', Gtk.IconSize.BUTTON);
-            statusImage.set_tooltip_text(_('File exists'));
-            dialog.set_response_sensitive(Gtk.ResponseType.OK, true);
-        } else {
-            statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-            statusImage.set_tooltip_text(_('Unknown file type'));
-            dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
-        }
-        
-    } catch (e) {
-        statusImage.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
-        statusImage.set_tooltip_text(_('Error checking file') + ': ' + e.message);
-        dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
-    }
-};
-    
-    // Подключаем проверку при изменении текста
-    targetEntry.connect('changed', targetCheckFunction);
-    
-    // Изначально проверяем цель
-    targetCheckFunction();
-    
-    // Показываем диалог
-    dialog.show_all();
-    
-    // Обрабатываем ответ
-    let response = dialog.run();
-    
-    if (response === Gtk.ResponseType.OK) {
-        let target = targetEntry.get_text().trim();
-        if (target) {
-            try {
-                let fullPath = this.themeDir + '/' + this.currentSelectedFile;
-                let file = Gio.File.new_for_path(fullPath);
-                
-                file.delete(null);
-                file.make_symbolic_link(target, null);
-                
-                this.currentIcon.realFiles.delete(this.currentSelectedFile);
-                this.currentIcon.symlinks.set(this.currentSelectedFile, target);
-                this.currentIcon.hasSymlinks = true;
-                
-                this.updateFilesList();
-                this.setStatus(formatString(_('File converted to symlink: %s → %s'), this.currentSelectedFile, target));
-                this.setWindowModified(true);
-                
-            } catch (e) {
-                this.showError(formatString(_('Error converting to symlink: %s'), e.message));
-            }
-        }
-    }
-    
-    dialog.destroy();
-}
+	convertSymlinkToFile() {
+		if (!this.currentSelectedFile || !this.currentIcon) return;
 
-	// ==================== ПРЕОБРАЗОВАНИЕ СИМЛИНКА В ФАЙЛ ====================
+		let dialog = new Gtk.Dialog({
+			title: _('Convert to symlink'),
+			transient_for: this.window,
+			modal: true,
+			destroy_with_parent: true
+		});
+
+		dialog.add_button(_('Cancel'), Gtk.ResponseType.CANCEL);
+		dialog.add_button(_('OK'), Gtk.ResponseType.OK);
+		dialog.set_default_response(Gtk.ResponseType.OK);
+
+		let contentBox = dialog.get_content_area();
+		contentBox.set_spacing(3);
+		contentBox.set_margin_start(5);
+		contentBox.set_margin_end(5);
+		contentBox.set_margin_top(5);
+		contentBox.set_margin_bottom(5);
+
+		let infoLabel = new Gtk.Label({
+			label: formatString(_('File "%s" will be replaced with a symlink. Enter the target path:'), this.currentSelectedFile),
+			halign: Gtk.Align.START,
+			wrap: true,
+			selectable: true
+		});
+		contentBox.pack_start(infoLabel, false, false, 0);
+
+		let targetEntry = new Gtk.Entry({
+			hexpand: true,
+			placeholder_text: _('Enter target path...')
+		});
+
+		let statusImage = new Gtk.Image();
+		statusImage.set_size_request(16, 16);
+		statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+		statusImage.set_tooltip_text(_('Enter a target path'));
+
+		let entryBox = new Gtk.Box({
+			orientation: Gtk.Orientation.HORIZONTAL,
+			spacing: 3
+		});
+		entryBox.pack_start(targetEntry, true, true, 0);
+		entryBox.pack_start(statusImage, false, false, 0);
+		contentBox.pack_start(entryBox, false, false, 0);
+
+		let defaultTarget = this.suggestSymlinkTarget(this.currentSelectedFile);
+		targetEntry.set_text(defaultTarget);
+
+		let targetCheckFunction = () => {
+			let target = targetEntry.get_text().trim();
+			if (!target) {
+				statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+				statusImage.set_tooltip_text(_('Target not specified'));
+				dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
+				return;
+			}
+
+			try {
+				let symlinkPath = this.themeDir + '/' + this.currentSelectedFile;
+				let symlinkDir = Gio.File.new_for_path(symlinkPath).get_parent();
+				let targetFile = symlinkDir.get_child(target);
+
+				if (target.startsWith('./')) {
+					targetFile = symlinkDir.get_child(target.substring(2));
+				}
+				if (target.includes('../')) {
+					targetFile = symlinkDir.resolve_relative_path(target);
+				}
+
+				if (!targetFile.query_exists(null)) {
+					statusImage.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
+					statusImage.set_tooltip_text(_('File does not exist'));
+					dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
+					return;
+				}
+
+				let targetInfo = targetFile.query_info('standard::type,standard::is-symlink', Gio.FileQueryInfoFlags.NONE, null);
+				let fileType = targetInfo.get_file_type();
+				let isSymlink = targetInfo.get_is_symlink();
+
+				if (isSymlink || fileType === Gio.FileType.SYMBOLIC_LINK) {
+					statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+					statusImage.set_tooltip_text(_('Target is a symlink (indirect reference)'));
+					dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
+					return;
+				} else if (fileType === Gio.FileType.REGULAR) {
+					statusImage.set_from_icon_name('dialog-ok', Gtk.IconSize.BUTTON);
+					statusImage.set_tooltip_text(_('File exists'));
+					dialog.set_response_sensitive(Gtk.ResponseType.OK, true);
+				} else {
+					statusImage.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+					statusImage.set_tooltip_text(_('Unknown file type'));
+					dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
+				}
+			} catch (e) {
+				statusImage.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
+				statusImage.set_tooltip_text(_('Error checking file') + ': ' + e.message);
+				dialog.set_response_sensitive(Gtk.ResponseType.OK, false);
+			}
+		};
+
+		targetEntry.connect('changed', targetCheckFunction);
+		targetCheckFunction();
+
+		dialog.show_all();
+		let response = dialog.run();
+
+		if (response === Gtk.ResponseType.OK) {
+			let target = targetEntry.get_text().trim();
+			if (target) {
+				try {
+					let fullPath = this.themeDir + '/' + this.currentSelectedFile;
+					let file = Gio.File.new_for_path(fullPath);
+
+					file.delete(null);
+					file.make_symbolic_link(target, null);
+
+					this.currentIcon.realFiles.delete(this.currentSelectedFile);
+					this.currentIcon.symlinks.set(this.currentSelectedFile, target);
+					this.currentIcon.hasSymlinks = true;
+
+					this.updateFilesList();
+					this.setStatus(formatString(_('File converted to symlink: %s → %s'), this.currentSelectedFile, target));
+					this.setWindowModified(true);
+				} catch (e) {
+					this.showError(formatString(_('Error converting to symlink: %s'), e.message));
+				}
+			}
+		}
+
+		dialog.destroy();
+	}
+
 	convertToFile() {
 		let dialog = new Gtk.MessageDialog({
 			transient_for: this.window,
@@ -1377,42 +2229,41 @@ let targetCheckFunction = () => {
 			text: _('Convert to file?'),
 			secondary_text: formatString(_('Symlink "%s" will be replaced with a copy of the file.'), this.currentSelectedFile)
 		});
-		
+
 		if (dialog.run() === Gtk.ResponseType.YES) {
 			try {
 				let symlinkPath = this.themeDir + '/' + this.currentSelectedFile;
 				let symlinkFile = Gio.File.new_for_path(symlinkPath);
 				let target = this.currentIcon.symlinks.get(this.currentSelectedFile);
-				
+
 				if (!target) {
 					this.showError(_('Symlink target not found'));
 					return;
 				}
-				
+
 				let symlinkDir = symlinkFile.get_parent();
 				let targetFile = symlinkDir.resolve_relative_path(target);
-				
+
 				if (!targetFile.query_exists(null)) {
 					this.showError(_('Target file does not exist'));
 					return;
 				}
-				
+
 				targetFile.copy(symlinkFile, Gio.FileCopyFlags.OVERWRITE, null, null);
-				
+
 				this.currentIcon.symlinks.delete(this.currentSelectedFile);
 				this.currentIcon.realFiles.set(this.currentSelectedFile, true);
 				this.currentIcon.hasSymlinks = this.currentIcon.symlinks.size > 0;
 				this.currentIcon.symlinkOnly = this.currentIcon.realFiles.size === 0 && this.currentIcon.symlinks.size > 0;
-				
+
 				this.updateFilesList();
 				this.setStatus(formatString(_('Symlink converted to file: %s'), this.currentSelectedFile));
 				this.setWindowModified(true);
-				
 			} catch (e) {
 				this.showError(formatString(_('Error converting to file: %s'), e.message));
 			}
 		}
-		
+
 		dialog.destroy();
 	}
 
@@ -1420,8 +2271,7 @@ let targetCheckFunction = () => {
 	suggestSymlinkTarget(filePath) {
 		let parts = filePath.split('/');
 		let fileName = parts.pop();
-		let dirName = parts.join('/');
-		
+
 		for (let [otherPath, isReal] of this.currentIcon.realFiles) {
 			if (otherPath !== filePath && isReal) {
 				let otherParts = otherPath.split('/');
@@ -1431,7 +2281,7 @@ let targetCheckFunction = () => {
 				}
 			}
 		}
-		
+
 		return fileName;
 	}
 
@@ -1439,7 +2289,6 @@ let targetCheckFunction = () => {
 	loadPreview(dir, iconName) {
 		try {
 			let imagePath = null;
-			
 			let extensions = ['.png', '.xpm', '.svg'];
 			for (let ext of extensions) {
 				let testPath = this.themeDir + '/' + dir + '/' + iconName + ext;
@@ -1449,15 +2298,14 @@ let targetCheckFunction = () => {
 					break;
 				}
 			}
-			
+
 			if (!imagePath) {
 				this.previewImage.set_from_pixbuf(null);
 				return;
 			}
-			
+
 			let pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(imagePath, 128, 128);
 			this.previewImage.set_from_pixbuf(pixbuf);
-			
 		} catch (e) {
 			this.previewImage.set_from_pixbuf(null);
 		}
@@ -1467,20 +2315,18 @@ let targetCheckFunction = () => {
 	loadFilePreview(filePath) {
 		try {
 			let file = Gio.File.new_for_path(filePath);
-			
+
 			if (!file.query_exists(null)) {
 				this.filePreviewImage.set_from_pixbuf(null);
 				this.filePreviewLabel.set_label('');
 				return;
 			}
-			
+
 			let fileInfo = file.query_info('standard::*,time::*', Gio.FileQueryInfoFlags.NONE, null);
-			let fileType = fileInfo.get_file_type();
 			let isSymlink = fileInfo.get_is_symlink();
 			let size = fileInfo.get_size();
-			
+
 			let infoText = '';
-			
 			let extension = '';
 			let mimeType = '';
 			try {
@@ -1489,30 +2335,20 @@ let targetCheckFunction = () => {
 			} catch (e) {
 				mimeType = 'unknown';
 			}
-			
-			if (filePath.endsWith('.png')) {
-				extension = 'PNG';
-			} else if (filePath.endsWith('.svg')) {
-				extension = 'SVG';
-			} else if (filePath.endsWith('.xpm')) {
-				extension = 'XPM';
-			}
-			
+
+			if (filePath.endsWith('.png')) extension = 'PNG';
+			else if (filePath.endsWith('.svg')) extension = 'SVG';
+			else if (filePath.endsWith('.xpm')) extension = 'XPM';
+
 			let sizeText = '';
-			if (size < 1024) {
-				sizeText = size + ' B';
-			} else if (size < 1024 * 1024) {
-				sizeText = (size / 1024).toFixed(1) + ' KB';
-			} else {
-				sizeText = (size / (1024 * 1024)).toFixed(1) + ' MB';
-			}
-			
+			if (size < 1024) sizeText = size + ' B';
+			else if (size < 1024 * 1024) sizeText = (size / 1024).toFixed(1) + ' KB';
+			else sizeText = (size / (1024 * 1024)).toFixed(1) + ' MB';
+
 			let modTime = fileInfo.get_modification_date_time();
 			let modTimeStr = '';
-			if (modTime) {
-				modTimeStr = modTime.format('%Y-%m-%d %H:%M:%S');
-			}
-			
+			if (modTime) modTimeStr = modTime.format('%Y-%m-%d %H:%M:%S');
+
 			let dimensions = '';
 			if (extension === 'PNG' || extension === 'XPM') {
 				try {
@@ -1521,24 +2357,21 @@ let targetCheckFunction = () => {
 						dimensions = pixbuf.get_width() + ' × ' + pixbuf.get_height() + ' px';
 						pixbuf = null;
 					}
-				} catch (e) {
-					// Could not get dimensions
-				}
+				} catch (e) { /* ignore */ }
 			}
-			
+
 			infoText = '<b>File:</b> ' + file.get_basename() + '\n';
 			if (extension) infoText += '<b>Type:</b> ' + extension + '\n';
 			if (dimensions) infoText += '<b>Dimensions:</b> ' + dimensions + '\n';
 			infoText += '<b>File size:</b> ' + sizeText + '\n';
 			if (modTimeStr) infoText += '<b>Modified:</b> ' + modTimeStr + '\n';
-			
+
 			if (isSymlink) {
 				infoText += '\n<b>Symbolic link</b>';
 				try {
 					let target = fileInfo.get_symlink_target();
 					if (target) {
 						infoText += '\n<b>Target:</b> ' + target;
-						
 						let parent = file.get_parent();
 						let targetFile = parent.resolve_relative_path(target);
 						if (!targetFile.query_exists(null)) {
@@ -1547,27 +2380,22 @@ let targetCheckFunction = () => {
 							infoText += ' <span color="green">(exists)</span>';
 						}
 					}
-				} catch (e) {
-					// Не удалось получить цель симлинка
-				}
+				} catch (e) { /* ignore */ }
 			}
-			
+
 			this.filePreviewLabel.set_markup(infoText);
-			
+
 			let pixbuf = null;
 			try {
 				if (extension === 'SVG') {
 					this.filePreviewImage.set_from_icon_name('image-x-generic', Gtk.IconSize.LARGE_TOOLBAR);
 				} else {
 					pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(filePath, 128, 128);
-					if (pixbuf) {
-						this.filePreviewImage.set_from_pixbuf(pixbuf);
-					}
+					if (pixbuf) this.filePreviewImage.set_from_pixbuf(pixbuf);
 				}
 			} catch (e) {
 				this.filePreviewImage.set_from_icon_name('image-missing', Gtk.IconSize.LARGE_TOOLBAR);
 			}
-			
 		} catch (e) {
 			log('Error loading file preview: ' + e.message);
 			this.filePreviewImage.set_from_pixbuf(null);
@@ -1578,7 +2406,7 @@ let targetCheckFunction = () => {
 	// ==================== ОТКРЫТИЕ ИЗОБРАЖЕНИЯ В РЕДАКТОРЕ ====================
 	openImageInEditor() {
 		if (!this.currentPreviewDir || !this.currentIcon) return;
-		
+
 		try {
 			let extensions = ['.png', '.xpm', '.svg'];
 			for (let ext of extensions) {
@@ -1595,71 +2423,66 @@ let targetCheckFunction = () => {
 		}
 	}
 
-// ==================== УДАЛЕНИЕ ФАЙЛА ИЗОБРАЖЕНИЯ ====================
-deleteImageFile() {
-    if (!this.currentSelectedFile || !this.currentIcon) return;
-    
-    let fileType = this.currentSelectedIsSymlink ? _('symlink') : _('file');
-    let dialog = new Gtk.MessageDialog({
-        transient_for: this.window,
-        modal: true,
-        message_type: Gtk.MessageType.QUESTION,
-        buttons: Gtk.ButtonsType.YES_NO,
-        text: formatString(_('Delete %s?'), fileType),
-        secondary_text: formatString(_('Will delete %s "%s". This cannot be undone.'), fileType, this.currentSelectedFile)
-    });
-    
-    if (dialog.run() === Gtk.ResponseType.YES) {
-        try {
-            let fullPath = this.themeDir + '/' + this.currentSelectedFile;
-            let file = Gio.File.new_for_path(fullPath);
-            
-            if (file.query_exists(null)) {
-                file.delete(null);
-                
-                if (this.currentSelectedIsSymlink) {
-                    this.currentIcon.symlinks.delete(this.currentSelectedFile);
-                    this.currentIcon.hasSymlinks = this.currentIcon.symlinks.size > 0;
-                } else {
-                    this.currentIcon.realFiles.delete(this.currentSelectedFile);
-                }
-                
-                this.currentIcon.symlinkOnly = this.currentIcon.realFiles.size === 0 && this.currentIcon.symlinks.size > 0;
-                
-                // Обновляем список файлов
-                this.updateFilesList();
-                
-                // Сбрасываем превью
-                this.previewImage.set_from_pixbuf(null);
-                this.previewButton.set_sensitive(false);
-                this.deleteButton.set_sensitive(false);
-                this.convertToSymlinkButton.set_sensitive(false);
-                
-                // Обновляем статус текущей иконки в левом списке (без перезагрузки всей темы!)
-                this.updateCurrentIconStatus();
-                
-                this.setStatus(formatString(_('Deleted %s: %s'), fileType, this.currentSelectedFile));
-                this.setWindowModified(true);
-                
-            } else {
-                this.showError(_('File does not exist'));
-            }
-            
-        } catch (e) {
-            this.showError(_('Error deleting file') + ': ' + e.message);
-        }
-    }
-    
-    dialog.destroy();
-}
+	// ==================== УДАЛЕНИЕ ФАЙЛА ИЗОБРАЖЕНИЯ ====================
+	deleteImageFile() {
+		if (!this.currentSelectedFile || !this.currentIcon) return;
+
+		let fileType = this.currentSelectedIsSymlink ? _('symlink') : _('file');
+		let dialog = new Gtk.MessageDialog({
+			transient_for: this.window,
+			modal: true,
+			message_type: Gtk.MessageType.QUESTION,
+			buttons: Gtk.ButtonsType.YES_NO,
+			text: formatString(_('Delete %s?'), fileType),
+			secondary_text: formatString(_('Will delete %s "%s". This cannot be undone.'), fileType, this.currentSelectedFile)
+		});
+
+		if (dialog.run() === Gtk.ResponseType.YES) {
+			try {
+				let fullPath = this.themeDir + '/' + this.currentSelectedFile;
+				let file = Gio.File.new_for_path(fullPath);
+
+				if (file.query_exists(null)) {
+					file.delete(null);
+
+					if (this.currentSelectedIsSymlink) {
+						this.currentIcon.symlinks.delete(this.currentSelectedFile);
+						this.currentIcon.hasSymlinks = this.currentIcon.symlinks.size > 0;
+					} else {
+						this.currentIcon.realFiles.delete(this.currentSelectedFile);
+					}
+
+					this.currentIcon.symlinkOnly = this.currentIcon.realFiles.size === 0 && this.currentIcon.symlinks.size > 0;
+
+					this.updateFilesList();
+
+					this.previewImage.set_from_pixbuf(null);
+					this.previewButton.set_sensitive(false);
+					this.deleteButton.set_sensitive(false);
+					this.convertToSymlinkButton.set_sensitive(false);
+
+					this.updateListDisplay();
+
+					this.setStatus(formatString(_('Deleted %s: %s'), fileType, this.currentSelectedFile));
+					this.setWindowModified(true);
+				} else {
+					this.showError(_('File does not exist'));
+				}
+			} catch (e) {
+				this.showError(_('Error deleting file') + ': ' + e.message);
+			}
+		}
+
+		dialog.destroy();
+	}
 
 	// ==================== ПРОВЕРКА ЦЕЛИ СИМЛИНКА ====================
 	onSymlinkTargetChanged() {
 		if (!this.currentSymlink) return;
-		
+
 		let target = this.symlinkTargetEntry.get_text().trim();
 		this.symlinkHasChanges = (target !== this.symlinkOriginalTarget);
-		
+
 		if (target) {
 			this.checkSymlinkTarget(target);
 		} else {
@@ -1672,144 +2495,119 @@ deleteImageFile() {
 		}
 	}
 
-// ==================== ПРОВЕРКА СУЩЕСТВОВАНИЯ ЦЕЛИ ====================
-checkSymlinkTarget(target) {
-    if (!this.currentSymlink) {
-        this.symlinkStatusIcon.set_from_pixbuf(null);
-        this.symlinkStatusIcon.set_tooltip_text('');
-        return;
-    }
-    
-    if (!target) {
-        this.symlinkStatusIcon.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-        this.symlinkStatusIcon.set_tooltip_text(_('Target not specified'));
-        this.updateSymlinkSaveButton();
-        return;
-    }
+	checkSymlinkTarget(target) {
+		if (!this.currentSymlink) {
+			this.symlinkStatusIcon.set_from_pixbuf(null);
+			this.symlinkStatusIcon.set_tooltip_text('');
+			return;
+		}
 
-    try {
-        let symlinkPath = this.themeDir + '/' + this.currentSymlink;
-        let symlinkDir = Gio.File.new_for_path(symlinkPath).get_parent();
-        let targetFile = symlinkDir.get_child(target);
-        
-        if (target.startsWith('./')) {
-            targetFile = symlinkDir.get_child(target.substring(2));
-        }
-        
-        if (target.includes('../')) {
-            targetFile = symlinkDir.resolve_relative_path(target);
-        }
-        
-        if (!targetFile.query_exists(null)) {
-            this.symlinkStatusIcon.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
-            this.symlinkStatusIcon.set_tooltip_text(_('File does not exist'));
-            this.symlinkSaveButton.set_sensitive(false);
-            this.filePreviewImage.set_from_pixbuf(null);
-            this.filePreviewLabel.set_label('');
-            this.previewImage.set_from_pixbuf(null);
-            return;
-        }
-        
-        // Загружаем превью найденного файла
-        let targetPath = targetFile.get_path();
-        this.loadFilePreview(targetPath);
-        
-        // Также загружаем основное превью иконки
-        if (this.currentIcon) {
-            let parts = this.currentSymlink.split('/');
-            if (parts.length >= 2) {
-                let dir = parts[0];
-                this.loadPreview(dir, this.currentIcon.name);
-            }
-        }
-        
-        let targetInfo = targetFile.query_info('standard::type,standard::is-symlink', Gio.FileQueryInfoFlags.NONE, null);
-        let fileType = targetInfo.get_file_type();
-        let isSymlink = targetInfo.get_is_symlink();
-        
-        // Проверяем, является ли цель симлинком
-        if (isSymlink || fileType === Gio.FileType.SYMBOLIC_LINK) {
-            this.symlinkStatusIcon.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-            this.symlinkStatusIcon.set_tooltip_text(_('Target is a symlink (indirect reference)'));
-            this.symlinkSaveButton.set_sensitive(false);
-            return;
-        } else if (fileType === Gio.FileType.REGULAR) {
-            this.symlinkStatusIcon.set_from_icon_name('dialog-ok', Gtk.IconSize.BUTTON);
-            this.symlinkStatusIcon.set_tooltip_text(_('File exists'));
-        } else {
-            this.symlinkStatusIcon.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
-            this.symlinkStatusIcon.set_tooltip_text(_('Unknown file type'));
-            this.symlinkSaveButton.set_sensitive(false);
-            return;
-        }
-        
-        this.updateSymlinkSaveButton();
-        
-    } catch (e) {
-        this.symlinkStatusIcon.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
-        this.symlinkStatusIcon.set_tooltip_text(_('Error checking file') + ': ' + e.message);
-        this.symlinkSaveButton.set_sensitive(false);
-        this.filePreviewImage.set_from_pixbuf(null);
-        this.filePreviewLabel.set_label('');
-        this.previewImage.set_from_pixbuf(null);
-    }
-}
+		if (!target) {
+			this.symlinkStatusIcon.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+			this.symlinkStatusIcon.set_tooltip_text(_('Target not specified'));
+			this.updateSymlinkSaveButton();
+			return;
+		}
 
-	// ==================== ОБНОВЛЕНИЕ СОСТОЯНИЯ КНОПКИ SAVE ====================
+		try {
+			let symlinkPath = this.themeDir + '/' + this.currentSymlink;
+			let symlinkDir = Gio.File.new_for_path(symlinkPath).get_parent();
+			let targetFile = symlinkDir.get_child(target);
+
+			if (target.startsWith('./')) targetFile = symlinkDir.get_child(target.substring(2));
+			if (target.includes('../')) targetFile = symlinkDir.resolve_relative_path(target);
+
+			if (!targetFile.query_exists(null)) {
+				this.symlinkStatusIcon.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
+				this.symlinkStatusIcon.set_tooltip_text(_('File does not exist'));
+				this.symlinkSaveButton.set_sensitive(false);
+				this.filePreviewImage.set_from_pixbuf(null);
+				this.filePreviewLabel.set_label('');
+				this.previewImage.set_from_pixbuf(null);
+				return;
+			}
+
+			let targetPath = targetFile.get_path();
+			this.loadFilePreview(targetPath);
+
+			if (this.currentIcon) {
+				let parts = this.currentSymlink.split('/');
+				if (parts.length >= 2) {
+					let dir = parts[0];
+					this.loadPreview(dir, this.currentIcon.name);
+				}
+			}
+
+			let targetInfo = targetFile.query_info('standard::type,standard::is-symlink', Gio.FileQueryInfoFlags.NONE, null);
+			let fileType = targetInfo.get_file_type();
+			let isSymlink = targetInfo.get_is_symlink();
+
+			if (isSymlink || fileType === Gio.FileType.SYMBOLIC_LINK) {
+				this.symlinkStatusIcon.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+				this.symlinkStatusIcon.set_tooltip_text(_('Target is a symlink (indirect reference)'));
+				this.symlinkSaveButton.set_sensitive(false);
+				return;
+			} else if (fileType === Gio.FileType.REGULAR) {
+				this.symlinkStatusIcon.set_from_icon_name('dialog-ok', Gtk.IconSize.BUTTON);
+				this.symlinkStatusIcon.set_tooltip_text(_('File exists'));
+			} else {
+				this.symlinkStatusIcon.set_from_icon_name('dialog-warning', Gtk.IconSize.BUTTON);
+				this.symlinkStatusIcon.set_tooltip_text(_('Unknown file type'));
+				this.symlinkSaveButton.set_sensitive(false);
+				return;
+			}
+
+			this.updateSymlinkSaveButton();
+		} catch (e) {
+			this.symlinkStatusIcon.set_from_icon_name('dialog-error', Gtk.IconSize.BUTTON);
+			this.symlinkStatusIcon.set_tooltip_text(_('Error checking file') + ': ' + e.message);
+			this.symlinkSaveButton.set_sensitive(false);
+			this.filePreviewImage.set_from_pixbuf(null);
+			this.filePreviewLabel.set_label('');
+			this.previewImage.set_from_pixbuf(null);
+		}
+	}
+
 	updateSymlinkSaveButton() {
 		if (!this.currentSymlink || !this.symlinkOriginalTarget) {
 			this.symlinkSaveButton.set_sensitive(false);
 			return;
 		}
-		
+
 		let currentTarget = this.symlinkTargetEntry.get_text().trim();
 		let hasChanges = currentTarget !== this.symlinkOriginalTarget;
 		let isValid = currentTarget && this.isSymlinkTargetValid(currentTarget);
-		
+
 		this.symlinkSaveButton.set_sensitive(hasChanges && isValid);
 	}
 
-// ==================== ПРОВЕРКА ВАЛИДНОСТИ ЦЕЛИ ====================
-isSymlinkTargetValid(target) {
-    if (!target) return false;
-    
-    try {
-        let symlinkPath = this.themeDir + '/' + this.currentSymlink;
-        let symlinkDir = Gio.File.new_for_path(symlinkPath).get_parent();
-        let targetFile = symlinkDir.get_child(target);
-        
-        if (target.startsWith('./')) {
-            targetFile = symlinkDir.get_child(target.substring(2));
-        }
-        
-        if (target.includes('../')) {
-            targetFile = symlinkDir.resolve_relative_path(target);
-        }
-        
-        if (!targetFile.query_exists(null)) {
-            return false;
-        }
-        
-        // Проверяем, является ли цель симлинком
-        let targetInfo = targetFile.query_info('standard::type,standard::is-symlink', Gio.FileQueryInfoFlags.NONE, null);
-        let isSymlink = targetInfo.get_is_symlink();
-        let fileType = targetInfo.get_file_type();
-        
-        // Если это симлинк - считаем невалидным
-        if (isSymlink || fileType === Gio.FileType.SYMBOLIC_LINK) {
-            return false;
-        }
-        
-        return fileType === Gio.FileType.REGULAR;
-    } catch (e) {
-        return false;
-    }
-}
+	isSymlinkTargetValid(target) {
+		if (!target) return false;
 
-	// ==================== СБРОС ЦЕЛИ СИМЛИНКА ====================
+		try {
+			let symlinkPath = this.themeDir + '/' + this.currentSymlink;
+			let symlinkDir = Gio.File.new_for_path(symlinkPath).get_parent();
+			let targetFile = symlinkDir.get_child(target);
+
+			if (target.startsWith('./')) targetFile = symlinkDir.get_child(target.substring(2));
+			if (target.includes('../')) targetFile = symlinkDir.resolve_relative_path(target);
+
+			if (!targetFile.query_exists(null)) return false;
+
+			let targetInfo = targetFile.query_info('standard::type,standard::is-symlink', Gio.FileQueryInfoFlags.NONE, null);
+			let isSymlink = targetInfo.get_is_symlink();
+			let fileType = targetInfo.get_file_type();
+
+			if (isSymlink || fileType === Gio.FileType.SYMBOLIC_LINK) return false;
+			return fileType === Gio.FileType.REGULAR;
+		} catch (e) {
+			return false;
+		}
+	}
+
 	resetSymlinkTarget() {
 		if (!this.currentSymlink || !this.currentIcon) return;
-		
+
 		let originalTarget = this.currentIcon.symlinks.get(this.currentSymlink);
 		if (originalTarget) {
 			this.symlinkTargetEntry.set_text(originalTarget);
@@ -1818,95 +2616,105 @@ isSymlinkTargetValid(target) {
 	}
 
 	// ==================== СОХРАНЕНИЕ ЦЕЛИ СИМЛИНКА ====================
-saveSymlinkTarget() {
-    if (!this.currentSymlink || !this.currentIcon) return;
-    
-    let newTarget = this.symlinkTargetEntry.get_text().trim();
-    if (!newTarget) {
-        this.showError(_('Symlink target cannot be empty'));
-        return;
-    }
-    
-    if (newTarget === this.symlinkOriginalTarget) {
-        this.setStatus(_('No changes to save'));
-        return;
-    }
-    
-    let selectedFile = this.currentSelectedFile;
-    
-    try {
-        let symlinkPath = this.themeDir + '/' + this.currentSymlink;
-        let symlinkFile = Gio.File.new_for_path(symlinkPath);
-        
-        if (symlinkFile.query_exists(null)) {
-            symlinkFile.delete(null);
-        }
-        symlinkFile.make_symbolic_link(newTarget, null);
-        
-        this.currentIcon.symlinks.set(this.currentSymlink, newTarget);
-        this.symlinkOriginalTarget = newTarget;
-        this.symlinkHasChanges = false;
-        this.symlinkSaveButton.set_sensitive(false);
-        
-        this.symlinkStatusIcon.set_from_icon_name('dialog-ok', Gtk.IconSize.BUTTON);
-        this.symlinkStatusIcon.set_tooltip_text(_('Saved successfully'));
-        
-        this.setStatus(_('Symlink target updated'));
-        this.setWindowModified(true);
-        // Обновляем статус текущей иконки в левом списке
-        this.updateCurrentIconStatus();
+	saveSymlinkTarget() {
+		if (!this.currentSymlink || !this.currentIcon) return;
 
-        
-        // Блокируем сигналы во время обновления списка
-        this.isUpdating = true;
-        this.updateFilesList();
-        this.isUpdating = false;
-        
-        // Восстанавливаем выделение после обновления
-        if (selectedFile) {
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
-                let found = this.selectFileInList(selectedFile);
-                // Если файл не найден, выбираем первый
-                if (!found) {
-                    let iter = this.filesListStore.get_iter_first();
-                    if (iter) {
-                        let path = this.filesListStore.get_path(iter);
-                        this.filesTreeView.set_cursor(path, null, false);
-                    }
-                }
-                // Принудительно обновляем панель предпросмотра
-                this.onFileSelected();
-                return false;
-            });
-        }
-        
-    } catch (e) {
-        this.showError(_('Error saving symlink') + ': ' + e.message);
-        this.isUpdating = false;
-    }
-}
+		let newTarget = this.symlinkTargetEntry.get_text().trim();
+		if (!newTarget) {
+			this.showError(_('Symlink target cannot be empty'));
+			return;
+		}
 
-selectFileInList(filePath) {
-    try {
-        let iter = this.filesListStore.get_iter_first();
-        let index = 0;
-        while (iter) {
-            let path = this.filesListStore.get_value(iter, 0);
-            if (path === filePath) {
-                // Используем рабочий способ создания TreePath
-                let treePath = new Gtk.TreePath();
-                treePath.append_index(index);
-                this.filesTreeView.set_cursor(treePath, null, false);
-                return true;
-            }
-            iter = this.filesListStore.iter_next(iter);
-            index++;
-        }
-    } catch (e) {
-        log('Warning: Could not select file "' + filePath + '": ' + e.message);
-    }
-    return false;
-}
+		if (newTarget === this.symlinkOriginalTarget) {
+			this.setStatus(_('No changes to save'));
+			return;
+		}
+
+		let selectedFile = this.currentSelectedFile;
+
+		try {
+			let symlinkPath = this.themeDir + '/' + this.currentSymlink;
+			let symlinkFile = Gio.File.new_for_path(symlinkPath);
+
+			if (symlinkFile.query_exists(null)) symlinkFile.delete(null);
+			symlinkFile.make_symbolic_link(newTarget, null);
+
+			this.currentIcon.symlinks.set(this.currentSymlink, newTarget);
+			this.symlinkOriginalTarget = newTarget;
+			this.symlinkHasChanges = false;
+			this.symlinkSaveButton.set_sensitive(false);
+
+			this.symlinkStatusIcon.set_from_icon_name('dialog-ok', Gtk.IconSize.BUTTON);
+			this.symlinkStatusIcon.set_tooltip_text(_('Saved successfully'));
+
+			this.setStatus(_('Symlink target updated'));
+			this.setWindowModified(true);
+
+			this.updateListDisplay();
+
+			this.isUpdating = true;
+			this.updateFilesList();
+			this.isUpdating = false;
+
+			if (selectedFile) {
+				GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
+					let found = this.selectFileInList(selectedFile);
+					if (!found) {
+						let iter = this.filesListStore.get_iter_first();
+						if (iter) {
+							let path = this.filesListStore.get_path(iter);
+							this.filesTreeView.set_cursor(path, null, false);
+						}
+					}
+					this.onFileSelected();
+					return false;
+				});
+			}
+		} catch (e) {
+			this.showError(_('Error saving symlink') + ': ' + e.message);
+			this.isUpdating = false;
+		}
+	}
+
+	selectFileInList(filePath) {
+		try {
+			let iter = this.filesListStore.get_iter_first();
+			let index = 0;
+			while (iter) {
+				let path = this.filesListStore.get_value(iter, 0);
+				if (path === filePath) {
+					let treePath = new Gtk.TreePath();
+					treePath.append_index(index);
+					this.filesTreeView.set_cursor(treePath, null, false);
+					return true;
+				}
+				iter = this.filesListStore.iter_next(iter);
+				index++;
+			}
+		} catch (e) {
+			log('Warning: Could not select file "' + filePath + '": ' + e.message);
+		}
+		return false;
+	}
+
+	// ==================== ОБРАБОТКА КЛАВИШ В ПОЛЕ РЕДАКТИРОВАНИЯ СИМЛИНКА ====================
+	onSymlinkTargetKeyPress(entry, event) {
+		let keyval = event.get_keyval()[1];
+
+		if (keyval === 65293 || keyval === 65421) {
+			if (this.symlinkSaveButton.get_sensitive()) this.saveSymlinkTarget();
+			return true;
+		}
+
+		if (keyval === 65307) {
+			this.resetSymlinkTarget();
+			this.symlinkTargetEntry.grab_focus();
+			this.filesTreeView.grab_focus();
+			return true;
+		}
+
+		return false;
+	}
 
 	// ==================== НОРМАЛИЗАЦИЯ ЦЕЛЕЙ СИМЛИНКОВ ====================
 	normalizeSymlinkTarget(target) {
@@ -1920,9 +2728,7 @@ selectFileInList(filePath) {
 	// ==================== УСТАНОВКА ФЛАГА ИЗМЕНЕНИЯ В ЗАГОЛОВКЕ ====================
 	setWindowModified(modified) {
 		let title = _('Icon Theme Editor - DisplayName');
-		if (modified) {
-			title += ' *';
-		}
+		if (modified) title += ' *';
 		this.window.set_title(title);
 	}
 
@@ -1935,17 +2741,17 @@ selectFileInList(filePath) {
 	// ==================== ЗАГРУЗКА ТЕКУЩЕГО .ICON ФАЙЛА ====================
 	loadCurrentIconFile() {
 		if (!this.currentIcon) return;
-		
+
 		let contexts = new Set(this.currentIcon.directories.values());
 		if (contexts.size !== 1) return;
 
 		let context = Array.from(contexts)[0];
 		let directory = Array.from(this.currentIcon.directories.entries())
 			.find(([dir, ctx]) => ctx === context)[0];
-			
+
 		let iconFilePath = this.themeDir + '/' + directory + '/' + this.currentIcon.name + '.icon';
 		let iconFile = Gio.File.new_for_path(iconFilePath);
-		
+
 		let displayName = '';
 		if (iconFile.query_exists(null)) {
 			try {
@@ -1954,47 +2760,37 @@ selectFileInList(filePath) {
 					let iconText = imports.byteArray.toString(contents);
 					displayName = this.extractDisplayName(iconText) || '';
 				}
-			} catch (e) {
-				// Игнорируем ошибки чтения
-			}
+			} catch (e) { /* ignore */ }
 		}
-		
+
 		this.displayNameEntry.set_text(displayName);
 	}
 
 	// ==================== СОХРАНЕНИЕ .ICON ФАЙЛА ====================
 	saveIconFile() {
 		if (!this.currentIcon) return;
-		
+
 		let contexts = new Set(this.currentIcon.directories.values());
 		if (contexts.size !== 1) return;
 
 		let context = Array.from(contexts)[0];
 		let displayName = this.displayNameEntry.get_text().trim();
-		
+
 		try {
 			let iconContent = '';
-			if (displayName) {
-				iconContent = 'DisplayName=' + displayName + '\n';
-			}
+			if (displayName) iconContent = 'DisplayName=' + displayName + '\n';
 
 			let savedCount = 0;
 			for (let [directory, dirContext] of this.currentIcon.directories) {
 				if (dirContext === context) {
 					let iconFilePath = this.themeDir + '/' + directory + '/' + this.currentIcon.name + '.icon';
 					let iconFile = Gio.File.new_for_path(iconFilePath);
-					
+
 					let success = iconFile.replace_contents(
-						iconContent,
-						null,
-						false,
-						Gio.FileCreateFlags.REPLACE_DESTINATION,
-						null
-					);
-					
-					if (success) {
-						savedCount++;
-					}
+						iconContent, null, false,
+						Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+
+					if (success) savedCount++;
 				}
 			}
 
@@ -2004,7 +2800,6 @@ selectFileInList(filePath) {
 			} else {
 				this.showError(_('Save error'));
 			}
-
 		} catch (e) {
 			this.showError(_('Error saving') + ': ' + e.message);
 		}

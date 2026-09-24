@@ -284,3 +284,142 @@ msgstr "Ошибка преобразования в симлинк: %s"
 
 msgid "Error converting to file: %s"
 msgstr "Ошибка преобразования в файл: %s"
+
+#: Properties window - title
+msgid "Properties: %s"
+msgstr "Свойства: %s"
+
+#: Properties window - summary in header
+msgid "%d files, %d symlinks, %d contexts"
+msgstr "Файлов: %d, симлинков: %d, контекстов: %d"
+
+#: Properties window - notebook tooltip
+msgid "One tab per icon context found in index.theme. Operations apply only to the current tab."
+msgstr "По одной вкладке на каждый контекст значка из index.theme. Операции применяются только к текущей вкладке."
+
+#: Properties window - section labels
+msgid "Files in this context"
+msgstr "Файлы в этом контексте"
+
+msgid "Operations"
+msgstr "Операции"
+
+msgid "Referenced by"
+msgstr "Ссылаются на"
+
+#: Properties window - tooltips on section labels
+msgid "Physical files and symlinks of this icon in directories belonging to the selected context."
+msgstr "Физические файлы и симлинки этого значка в каталогах выбранного контекста."
+
+msgid "All symlinks across the whole theme that point to physical files listed above. Built at window open; use Refresh to rebuild."
+msgstr "Все симлинки во всей теме, указывающие на перечисленные выше физические файлы. Строится при открытии окна; для пересборки нажмите «Обновить»."
+
+#: Properties window - columns
+msgid "Path"
+msgstr "Путь"
+
+msgid "Physical file"
+msgstr "Физический файл"
+
+msgid "Referrer"
+msgstr "Ссылающийся"
+
+msgid "Icon"
+msgstr "Значок"
+
+#: Properties window - status values in file table
+msgid "Broken"
+msgstr "Битая"
+
+msgid "Chain"
+msgstr "Цепочка"
+
+#: Properties window - file type values (lowercase, in table)
+msgid "symlink"
+msgstr "симлинк"
+
+msgid "file"
+msgstr "файл"
+
+#: Properties window - buttons
+msgid "Close"
+msgstr "Закрыть"
+
+msgid "Master file..."
+msgstr "Мастер-файл..."
+
+msgid "All to files"
+msgstr "Всё в файлы"
+
+msgid "Unchain"
+msgstr "Развернуть цепочки"
+
+msgid "Remove broken"
+msgstr "Удалить битые"
+
+#: Properties window - button tooltips
+msgid "Re-read files and symlinks of this icon from disk, then rebuild the referenced-by index."
+msgstr "Перечитать файлы и симлинки этого значка с диска и перестроить индекс обратных ссылок."
+
+msgid "Close this window. Any changes already applied stay on disk."
+msgstr "Закрыть окно. Уже применённые изменения остаются на диске."
+
+msgid "Choose one physical file as the master. All other files and symlinks in this context will be re-pointed to it."
+msgstr "Выбрать один физический файл мастером. Все остальные файлы и симлинки в этом контексте будут указывать на него."
+
+msgid "Replace every symlink in this context with a physical copy of its target. The symlinks are removed and real files are written."
+msgstr "Заменить каждый симлинк в этом контексте физической копией его цели. Симлинки удаляются, вместо них записываются реальные файлы."
+
+msgid "For every symlink that points to another symlink, re-target it directly to the final physical file."
+msgstr "Для каждого симлинка, указывающего на другой симлинк, перенаправить его напрямую на конечный физический файл."
+
+msgid "Delete symlinks in this context whose target file no longer exists. Physical files are never touched."
+msgstr "Удалить симлинки в этом контексте, цель которых больше не существует. Физические файлы не затрагиваются."
+
+#: Master file dialog
+msgid "Choose master file"
+msgstr "Выбор мастер-файла"
+
+msgid "Choose a file to become the master. Other files in this context will become symlinks to it."
+msgstr "Выберите файл, который станет мастером. Остальные файлы в этом контексте станут симлинками на него."
+
+msgid "No physical files in this context. Cannot choose a master."
+msgstr "В этом контексте нет физических файлов. Нельзя выбрать мастер."
+
+#: All to files
+msgid "Convert %d symlinks to physical files?"
+msgstr "Преобразовать %d симлинков в физические файлы?"
+
+msgid "Each symlink will be replaced with a copy of its target file."
+msgstr "Каждый симлинк будет заменён копией своего целевого файла."
+
+msgid "No symlinks in this context."
+msgstr "В этом контексте нет симлинков."
+
+#: Unchain
+msgid "Fix %d symlink chains?"
+msgstr "Развернуть %d цепочек симлинков?"
+
+msgid "Each symlink pointing to another symlink will be re-targeted directly to the final file."
+msgstr "Каждый симлинк, указывающий на другой симлинк, будет перенаправлен напрямую на конечный файл."
+
+msgid "No symlink chains found."
+msgstr "Цепочек симлинков не найдено."
+
+#: Remove broken
+msgid "Delete %d broken symlinks?"
+msgstr "Удалить %d битых симлинков?"
+
+msgid "No broken symlinks in this context."
+msgstr "В этом контексте нет битых симлинков."
+
+#: Generic errors header
+msgid "Errors:"
+msgstr "Ошибки:"
+
+#: Column headers
+msgid "Size"
+msgstr "Размер"
+
+msgid "Type"
+msgstr "Тип"
