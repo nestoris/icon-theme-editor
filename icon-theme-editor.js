@@ -263,318 +263,352 @@ getFilesInContext(dirs) {
 }
 
 	// ==================== ПОСТРОЕНИЕ ВКЛАДКИ ====================
-	buildTab(context, dirs) {
-		let mainBox = new Gtk.Box({
-			orientation: Gtk.Orientation.VERTICAL,
-			spacing: 5,
-			margin: 5
-		});
+buildTab(context, dirs) {
+    let mainBox = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+        margin: 5
+    });
 
-		// Таблица файлов
-		let filesLabel = new Gtk.Label({
-			label: '<b>' + _('Files in this context') + '</b>',
-			use_markup: true,
-			halign: Gtk.Align.START
-		});
-		filesLabel.set_tooltip_text(_('Physical files and symlinks of this icon in directories belonging to the selected context.'));
-		mainBox.pack_start(filesLabel, false, false, 0);
+    // ==================== ЛЕВАЯ ЧАСТЬ: файлы ====================
+    let filesLabel = new Gtk.Label({
+        label: '<b>' + _('Files in this context') + '</b>',
+        use_markup: true,
+        halign: Gtk.Align.START
+    });
+    filesLabel.set_tooltip_text(_('Physical files and symlinks of this icon in directories belonging to the selected context. Ctrl+click for multi-select.'));
 
-		let filesScrolled = new Gtk.ScrolledWindow();
-		filesScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
-		filesScrolled.set_size_request(-1, 180);
+    // Оборачиваем label+таблицу в вертикальный box
+    let filesBox = new Gtk.Box({
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 3,
+        hexpand: true,
+        vexpand: true
+    });
+    filesBox.pack_start(filesLabel, false, false, 0);
 
-		let filesStore = new Gtk.ListStore();
-		filesStore.set_column_types([
-				GdkPixbuf.Pixbuf,      // 0: thumbnail
-				GObject.TYPE_STRING,   // 1: path
-				GObject.TYPE_STRING,   // 2: type
-				GObject.TYPE_STRING,   // 3: target
-				GObject.TYPE_STRING,   // 4: status
-				GObject.TYPE_STRING    // 5: size
-		]);
+    let filesStore = new Gtk.ListStore();
+    filesStore.set_column_types([
+        GdkPixbuf.Pixbuf,      // 0: thumbnail
+        GObject.TYPE_STRING,   // 1: path
+        GObject.TYPE_STRING,   // 2: type
+        GObject.TYPE_STRING,   // 3: target
+        GObject.TYPE_STRING,   // 4: status
+        GObject.TYPE_STRING    // 5: size
+    ]);
 
-let filesView = new Gtk.TreeView({ model: filesStore, headers_clickable: true });
+    let filesView = new Gtk.TreeView({ model: filesStore, headers_clickable: true });
 
-let pixRenderer = new Gtk.CellRendererPixbuf();
-let pixColumn = new Gtk.TreeViewColumn({ title: '' });
-pixColumn.pack_start(pixRenderer, false);
-pixColumn.add_attribute(pixRenderer, 'pixbuf', 0);
-filesView.append_column(pixColumn);
+    // МНОЖЕСТВЕННОЕ ВЫДЕЛЕНИЕ
+    filesView.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
 
-let pathRenderer = new Gtk.CellRendererText();
-let pathColumn = new Gtk.TreeViewColumn({ title: _('Path') });
-pathColumn.pack_start(pathRenderer, true);
-pathColumn.add_attribute(pathRenderer, 'text', 1);
-pathColumn.set_resizable(true);
-pathColumn.set_expand(true);
-pathColumn.set_min_width(180);
-pathColumn.set_sort_column_id(1);
-pathColumn.set_clickable(true);
-pathRenderer.set_property('ellipsize', 3);
-filesView.append_column(pathColumn);
+    let pixRenderer = new Gtk.CellRendererPixbuf();
+    let pixColumn = new Gtk.TreeViewColumn({ title: '' });
+    pixColumn.pack_start(pixRenderer, false);
+    pixColumn.add_attribute(pixRenderer, 'pixbuf', 0);
+    filesView.append_column(pixColumn);
 
-// === Size ===
-let sizeRenderer = new Gtk.CellRendererText();
-let sizeColumn = new Gtk.TreeViewColumn({ title: _('Size') });
-sizeColumn.pack_start(sizeRenderer, false);
-sizeColumn.add_attribute(sizeRenderer, 'text', 5);
-sizeColumn.set_min_width(60);
-sizeColumn.set_resizable(true);
-sizeColumn.set_sort_column_id(5);
-sizeColumn.set_clickable(true);
-filesView.append_column(sizeColumn);
+    let pathRenderer = new Gtk.CellRendererText();
+    let pathColumn = new Gtk.TreeViewColumn({ title: _('Path') });
+    pathColumn.pack_start(pathRenderer, true);
+    pathColumn.add_attribute(pathRenderer, 'text', 1);
+    pathColumn.set_resizable(true);
+    pathColumn.set_expand(true);
+    pathColumn.set_min_width(160);
+    pathColumn.set_sort_column_id(1);
+    pathColumn.set_clickable(true);
+    pathRenderer.set_property('ellipsize', 3);
+    filesView.append_column(pathColumn);
 
-let typeRenderer = new Gtk.CellRendererText();
-let typeColumn = new Gtk.TreeViewColumn({ title: _('Type') });
-typeColumn.pack_start(typeRenderer, false);
-typeColumn.add_attribute(typeRenderer, 'text', 2);
-typeColumn.set_min_width(80);
-typeColumn.set_resizable(true);
-typeColumn.set_sort_column_id(2);
-typeColumn.set_clickable(true);
-filesView.append_column(typeColumn);
+    let sizeRenderer = new Gtk.CellRendererText();
+    let sizeColumn = new Gtk.TreeViewColumn({ title: _('Size') });
+    sizeColumn.pack_start(sizeRenderer, false);
+    sizeColumn.add_attribute(sizeRenderer, 'text', 5);
+    sizeColumn.set_min_width(50);
+    sizeColumn.set_resizable(true);
+    sizeColumn.set_sort_column_id(5);
+    sizeColumn.set_clickable(true);
+    filesView.append_column(sizeColumn);
 
-let targetRenderer = new Gtk.CellRendererText();
-let targetColumn = new Gtk.TreeViewColumn({ title: _('Target') });
-targetColumn.pack_start(targetRenderer, true);
-targetColumn.add_attribute(targetRenderer, 'text', 3);
-targetColumn.set_min_width(150);
-targetColumn.set_resizable(true);
-targetColumn.set_expand(true);
-targetColumn.set_sort_column_id(3);
-targetColumn.set_clickable(true);
-targetRenderer.set_property('ellipsize', 3);
-filesView.append_column(targetColumn);
+    let typeRenderer = new Gtk.CellRendererText();
+    let typeColumn = new Gtk.TreeViewColumn({ title: _('Type') });
+    typeColumn.pack_start(typeRenderer, false);
+    typeColumn.add_attribute(typeRenderer, 'text', 2);
+    typeColumn.set_min_width(70);
+    typeColumn.set_resizable(true);
+    typeColumn.set_sort_column_id(2);
+    typeColumn.set_clickable(true);
+    filesView.append_column(typeColumn);
 
-let statusRenderer = new Gtk.CellRendererText();
-let statusColumn = new Gtk.TreeViewColumn({ title: _('Status') });
-statusColumn.pack_start(statusRenderer, false);
-statusColumn.add_attribute(statusRenderer, 'text', 4);
-statusColumn.set_min_width(90);
-statusColumn.set_resizable(true);
-statusColumn.set_sort_column_id(4);
-statusColumn.set_clickable(true);
-filesView.append_column(statusColumn);
+    let targetRenderer = new Gtk.CellRendererText();
+    let targetColumn = new Gtk.TreeViewColumn({ title: _('Target') });
+    targetColumn.pack_start(targetRenderer, true);
+    targetColumn.add_attribute(targetRenderer, 'text', 3);
+    targetColumn.set_min_width(130);
+    targetColumn.set_resizable(true);
+    targetColumn.set_expand(true);
+    targetColumn.set_sort_column_id(3);
+    targetColumn.set_clickable(true);
+    targetRenderer.set_property('ellipsize', 3);
+    filesView.append_column(targetColumn);
 
-		filesScrolled.add(filesView);
+    let statusRenderer = new Gtk.CellRendererText();
+    let statusColumn = new Gtk.TreeViewColumn({ title: _('Status') });
+    statusColumn.pack_start(statusRenderer, false);
+    statusColumn.add_attribute(statusRenderer, 'text', 4);
+    statusColumn.set_min_width(80);
+    statusColumn.set_resizable(true);
+    statusColumn.set_sort_column_id(4);
+    statusColumn.set_clickable(true);
+    filesView.append_column(statusColumn);
 
-filesView.connect('cursor-changed', () => {
-    let [ok, model, iter] = filesView.get_selection().get_selected();
-    if (!ok || !iter) {
-        this.headerImage.set_from_pixbuf(null);
-        return;
-    }
-    let path = model.get_value(iter, 1);
-    let abs = this.themeDir + '/' + path;
-    let pix = this.loadPreviewPixbuf(abs, 64);
-    this.headerImage.set_from_pixbuf(pix);
-});
+    let filesScroll = new Gtk.ScrolledWindow();
+    filesScroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
+    filesScroll.set_size_request(430, -1);
+    filesScroll.add(filesView);
+    filesBox.pack_start(filesScroll, true, true, 0);
 
-		mainBox.pack_start(filesScrolled, true, true, 0);
+    mainBox.pack_start(filesBox, true, true, 0);
 
-		// Операции
-		let opsLabel = new Gtk.Label({
-			label: '<b>' + _('Operations') + '</b>',
-			use_markup: true,
-			halign: Gtk.Align.START
-		});
-		mainBox.pack_start(opsLabel, false, false, 0);
+    // ==================== ПРАВАЯ ЧАСТЬ: ссылающиеся симлинки ====================
+    let refsBox = new Gtk.Box({
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 3,
+        hexpand: true,
+        vexpand: true
+    });
 
-		let opsBox = new Gtk.Box({
-			orientation: Gtk.Orientation.HORIZONTAL,
-			spacing: 5
-		});
+    let refsLabel = new Gtk.Label({
+        label: '<b>' + _('Referenced by') + '</b>',
+        use_markup: true,
+        halign: Gtk.Align.START
+    });
+    refsLabel.set_tooltip_text(_('All symlinks across the whole theme that point to physical files listed on the left. If any rows are selected on the left, only symlinks pointing to those rows are shown.'));
+    refsBox.pack_start(refsLabel, false, false, 0);
 
-		let masterButton = new Gtk.Button({ label: _('Master file...') });
-		masterButton.set_tooltip_text(_('Choose one physical file as the master. All other files and symlinks in this context will be re-pointed to it.'));
-		masterButton.connect('clicked', () => this.applyMaster(context));
-		opsBox.pack_start(masterButton, false, false, 0);
+    let refsStore = new Gtk.ListStore();
+    refsStore.set_column_types([
+        GObject.TYPE_STRING,   // 0: physical file
+        GObject.TYPE_STRING,   // 1: referrer
+        GObject.TYPE_STRING,   // 2: icon
+        GObject.TYPE_STRING,   // 3: size
+        GObject.TYPE_STRING    // 4: context
+    ]);
 
-		let toFilesButton = new Gtk.Button({ label: _('All to files') });
-		toFilesButton.set_tooltip_text(_('Replace every symlink in this context with a physical copy of its target. The symlinks are removed and real files are written.'));
-		toFilesButton.connect('clicked', () => this.allToFiles(context));
-		opsBox.pack_start(toFilesButton, false, false, 0);
+    let refsView = new Gtk.TreeView({ model: refsStore, headers_clickable: true });
 
-		let unchainButton = new Gtk.Button({ label: _('Unchain') });
-		unchainButton.set_tooltip_text(_('For every symlink that points to another symlink, re-target it directly to the final physical file.'));
-		unchainButton.connect('clicked', () => this.unchain(context));
-		opsBox.pack_start(unchainButton, false, false, 0);
+    let physRenderer = new Gtk.CellRendererText();
+    let physColumn = new Gtk.TreeViewColumn({ title: _('Physical file') });
+    physColumn.pack_start(physRenderer, true);
+    physColumn.add_attribute(physRenderer, 'text', 0);
+    physColumn.set_resizable(true);
+    physColumn.set_expand(true);
+    physColumn.set_min_width(160);
+    physColumn.set_sort_column_id(0);
+    physColumn.set_clickable(true);
+    physRenderer.set_property('ellipsize', 3);
+    refsView.append_column(physColumn);
 
-		let removeBrokenButton = new Gtk.Button({ label: _('Remove broken') });
-		removeBrokenButton.set_tooltip_text(_('Delete symlinks in this context whose target file no longer exists. Physical files are never touched.'));
-		removeBrokenButton.connect('clicked', () => this.removeBroken(context));
-		opsBox.pack_start(removeBrokenButton, false, false, 0);
+    let refSizeRenderer = new Gtk.CellRendererText();
+    let refSizeColumn = new Gtk.TreeViewColumn({ title: _('Size') });
+    refSizeColumn.pack_start(refSizeRenderer, false);
+    refSizeColumn.add_attribute(refSizeRenderer, 'text', 3);
+    refSizeColumn.set_min_width(50);
+    refSizeColumn.set_resizable(true);
+    refSizeColumn.set_sort_column_id(3);
+    refSizeColumn.set_clickable(true);
+    refsView.append_column(refSizeColumn);
 
-		mainBox.pack_start(opsBox, false, false, 0);
+    let refRenderer = new Gtk.CellRendererText();
+    let refColumn = new Gtk.TreeViewColumn({ title: _('Referrer') });
+    refColumn.pack_start(refRenderer, true);
+    refColumn.add_attribute(refRenderer, 'text', 1);
+    refColumn.set_resizable(true);
+    refColumn.set_expand(true);
+    refColumn.set_min_width(160);
+    refColumn.set_sort_column_id(1);
+    refColumn.set_clickable(true);
+    refRenderer.set_property('ellipsize', 3);
+    refsView.append_column(refColumn);
 
-		// Обратные ссылки
-		let refsLabel = new Gtk.Label({
-			label: '<b>' + _('Referenced by') + '</b>',
-			use_markup: true,
-			halign: Gtk.Align.START
-		});
-		refsLabel.set_tooltip_text(_('All symlinks across the whole theme that point to physical files listed above. Built at window open; use Refresh to rebuild.'));
-		mainBox.pack_start(refsLabel, false, false, 0);
+    let refIconRenderer = new Gtk.CellRendererText();
+    let refIconColumn = new Gtk.TreeViewColumn({ title: _('Icon') });
+    refIconColumn.pack_start(refIconRenderer, false);
+    refIconColumn.add_attribute(refIconRenderer, 'text', 2);
+    refIconColumn.set_min_width(110);
+    refIconColumn.set_resizable(true);
+    refIconColumn.set_sort_column_id(2);
+    refIconColumn.set_clickable(true);
+    refsView.append_column(refIconColumn);
 
-		let refsScrolled = new Gtk.ScrolledWindow();
-		refsScrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
-		refsScrolled.set_size_request(-1, 140);
+    let refContextRenderer = new Gtk.CellRendererText();
+    let refContextColumn = new Gtk.TreeViewColumn({ title: _('Context') });
+    refContextColumn.pack_start(refContextRenderer, false);
+    refContextColumn.add_attribute(refContextRenderer, 'text', 4);
+    refContextColumn.set_min_width(90);
+    refContextColumn.set_resizable(true);
+    refContextColumn.set_sort_column_id(4);
+    refContextColumn.set_clickable(true);
+    refsView.append_column(refContextColumn);
 
-		let refsStore = new Gtk.ListStore();
-		refsStore.set_column_types([
-				GObject.TYPE_STRING,   // 0: physical file
-				GObject.TYPE_STRING,   // 1: referrer
-				GObject.TYPE_STRING,   // 2: icon
-				GObject.TYPE_STRING,   // 3: size
-				GObject.TYPE_STRING    // 4: context
-		]);
+    let refsScroll = new Gtk.ScrolledWindow();
+    //refsScroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
+    refsScroll.add(refsView);
+    refsBox.pack_start(refsScroll, true, true, 0);
 
-		let refsView = new Gtk.TreeView({ model: refsStore, headers_clickable: true });
+    mainBox.pack_start(refsBox, true, true, 0);
 
-		let physRenderer = new Gtk.CellRendererText();
-		let physColumn = new Gtk.TreeViewColumn({ title: _('Physical file') });
-		physColumn.pack_start(physRenderer, true);
-		physColumn.add_attribute(physRenderer, 'text', 0);
-		physColumn.set_resizable(true);
-		physColumn.set_expand(true);
-		physColumn.set_min_width(180);
-		physColumn.set_sort_column_id(0);
-		physColumn.set_clickable(true);
-		physRenderer.set_property('ellipsize', 3);
-		refsView.append_column(physColumn);
+    // ==================== ОПЕРАЦИИ (внизу, во всю ширину) ====================
+    let opsBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
 
-		// === Size ===
-		let refSizeRenderer = new Gtk.CellRendererText();
-		let refSizeColumn = new Gtk.TreeViewColumn({ title: _('Size') });
-		refSizeColumn.pack_start(refSizeRenderer, false);
-		refSizeColumn.add_attribute(refSizeRenderer, 'text', 3);
-		refSizeColumn.set_min_width(60);
-		refSizeColumn.set_resizable(true);
-		refSizeColumn.set_sort_column_id(3);
-		refSizeColumn.set_clickable(true);
-		refsView.append_column(refSizeColumn);
+    let masterButton = new Gtk.Button({ label: _('Master file...') });
+    masterButton.set_tooltip_text(_('Choose one physical file as the master. All other files and symlinks in this context will be re-pointed to it.'));
+    masterButton.connect('clicked', () => this.applyMaster(context));
+    opsBox.pack_start(masterButton, false, false, 0);
 
-		let refRenderer = new Gtk.CellRendererText();
-		let refColumn = new Gtk.TreeViewColumn({ title: _('Referrer') });
-		refColumn.pack_start(refRenderer, true);
-		refColumn.add_attribute(refRenderer, 'text', 1);
-		refColumn.set_resizable(true);
-		refColumn.set_expand(true);
-		refColumn.set_min_width(180);
-		refColumn.set_sort_column_id(1);
-		refColumn.set_clickable(true);
-		refRenderer.set_property('ellipsize', 3);
-		refsView.append_column(refColumn);
+    let toFilesButton = new Gtk.Button({ label: _('All to files') });
+    toFilesButton.set_tooltip_text(_('Replace every symlink in this context with a physical copy of its target.'));
+    toFilesButton.connect('clicked', () => this.allToFiles(context));
+    opsBox.pack_start(toFilesButton, false, false, 0);
 
-		let refIconRenderer = new Gtk.CellRendererText();
-		let refIconColumn = new Gtk.TreeViewColumn({ title: _('Icon') });
-		refIconColumn.pack_start(refIconRenderer, false);
-		refIconColumn.add_attribute(refIconRenderer, 'text', 2);
-		refIconColumn.set_min_width(120);
-		refIconColumn.set_resizable(true);
-		refIconColumn.set_sort_column_id(2);
-		refIconColumn.set_clickable(true);
-		refsView.append_column(refIconColumn);
+    let unchainButton = new Gtk.Button({ label: _('Unchain') });
+    unchainButton.set_tooltip_text(_('For every symlink that points to another symlink, re-target it directly to the final physical file.'));
+    unchainButton.connect('clicked', () => this.unchain(context));
+    opsBox.pack_start(unchainButton, false, false, 0);
 
-		// === Context ===
-		let refContextRenderer = new Gtk.CellRendererText();
-		let refContextColumn = new Gtk.TreeViewColumn({ title: _('Context') });
-		refContextColumn.pack_start(refContextRenderer, false);
-		refContextColumn.add_attribute(refContextRenderer, 'text', 4);
-		refContextColumn.set_min_width(100);
-		refContextColumn.set_resizable(true);
-		refContextColumn.set_sort_column_id(4);
-		refContextColumn.set_clickable(true);
-		refsView.append_column(refContextColumn);
+    let removeBrokenButton = new Gtk.Button({ label: _('Remove broken') });
+    removeBrokenButton.set_tooltip_text(_('Delete symlinks in this context whose target file no longer exists.'));
+    removeBrokenButton.connect('clicked', () => this.removeBroken(context));
+    opsBox.pack_start(removeBrokenButton, false, false, 0);
 
-		refsScrolled.add(refsView);
-		mainBox.pack_start(refsScrolled, true, true, 0);
+    // ==================== ИТОГОВАЯ ВЁРСТКА ====================
+    let outerBox = new Gtk.Box({
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 5,
+        margin: 5
+    });
 
-		let tabWidgets = {
-			mainBox: mainBox,
-			context: context,
-			dirs: dirs,
-			filesStore: filesStore,
-			filesView: filesView,
-			refsStore: refsStore,
-			refsView: refsView
-		};
+    outerBox.pack_start(mainBox, true, true, 0);
+    outerBox.pack_start(opsBox, false, false, 0);
 
-		this.populateTab(tabWidgets);
-		return tabWidgets;
-	}
+    let tabWidgets = {
+        mainBox: outerBox,
+        context: context,
+        dirs: dirs,
+        filesStore: filesStore,
+        filesView: filesView,
+        refsStore: refsStore,
+        refsView: refsView
+    };
+
+    // Обработчик выделения в filesView — перезаполняет refsStore
+    filesView.get_selection().connect('changed', () => {
+        this.updateRefsFromSelection(tabWidgets);
+    });
+
+    this.populateTab(tabWidgets);
+    return tabWidgets;
+}
 
 	// ==================== ЗАПОЛНЕНИЕ ВКЛАДКИ ====================
-	populateTab(tabWidgets) {
-		let filesStore = tabWidgets.filesStore;
-		let refsStore = tabWidgets.refsStore;
-		filesStore.clear();
-		refsStore.clear();
+populateTab(tabWidgets) {
+    let filesStore = tabWidgets.filesStore;
+    filesStore.clear();
 
-		let files = this.getFilesInContext(tabWidgets.dirs);
+    let files = this.getFilesInContext(tabWidgets.dirs);
 
-		for (let file of files) {
-				let iter = filesStore.append();
+    for (let file of files) {
+        let iter = filesStore.append();
 
-				// Миниатюра без сглаживания, 32×32
-				let pixbuf = this.loadPreviewPixbuf(
-				    this.themeDir + '/' + file.path, 32);
+        let pixbuf = this.loadPreviewPixbuf(
+            this.themeDir + '/' + file.path, 32);
 
-				// Тип
-				let typeText = file.isSymlink ? _('symlink') : _('file');
+        let typeText = file.isSymlink ? _('symlink') : _('file');
+        let sizeText = this.getSizeOfFile(file.path);
 
-				// Размер из имени каталога
-				let sizeText = this.getSizeOfFile(file.path);
+        let status = 'OK';
+        if (file.isSymlink) {
+            let resolved = this.resolveSymlink(file.path, file.target);
+            let absTarget = this.themeDir + '/' + resolved;
+            let targetFile = Gio.File.new_for_path(absTarget);
+            if (!targetFile.query_exists(null)) {
+                status = _('Broken');
+            } else {
+                try {
+                    let ti = targetFile.query_info('standard::is-symlink',
+                        Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+                    if (ti.get_is_symlink()) status = _('Chain');
+                } catch (e) { /* ignore */ }
+            }
+        }
 
-				// Статус
-				let status = 'OK';
-				if (file.isSymlink) {
-				    let resolved = this.resolveSymlink(file.path, file.target);
-				    let absTarget = this.themeDir + '/' + resolved;
-				    let targetFile = Gio.File.new_for_path(absTarget);
-				    if (!targetFile.query_exists(null)) {
-				        status = _('Broken');
-				    } else {
-				        try {
-				            let ti = targetFile.query_info('standard::is-symlink',
-				                Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
-				            if (ti.get_is_symlink()) status = _('Chain');
-				        } catch (e) { /* ignore */ }
-				    }
-				}
+        filesStore.set(iter, [0, 1, 2, 3, 4, 5],
+            [pixbuf, file.path, typeText, file.target || '', status, sizeText]);
+    }
 
-				filesStore.set(iter, [0, 1, 2, 3, 4, 5],
-				    [pixbuf, file.path, typeText, file.target || '', status, sizeText]);
-		}
+    filesStore.set_sort_column_id(1, Gtk.SortType.ASCENDING);
+    tabWidgets.refsStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);
 
-		// Обратные ссылки
-		if (this.reverseIndex) {
-				for (let file of files) {
-					  if (file.isSymlink) continue;
-					  let refs = this.reverseIndex.get(file.path) || [];
+    // Начальное состояние: ничего не выделено → правая показывает все ссылки
+    this.updateRefsFromSelection(tabWidgets);
+}
 
-					  // Размер физического файла — из параметров его каталога
-					  let physicalSize = this.getSizeOfFile(file.path);
+	// ==================== ОБНОВЛЕНИЕ ОБРАТНЫХ ИЗ ВЫДЕЛЕНИЯ ====================
+updateRefsFromSelection(tabWidgets) {
+    let refsStore = tabWidgets.refsStore;
+    refsStore.clear();
 
-					  for (let ref of refs) {
-					      let iter = refsStore.append();
+    if (!this.reverseIndex) return;
 
-					      // Контекст ссылающегося симлинка — из его значка
-					      let context = '';
-					      let refIcon = this.app.icons.find(i => i.name === ref.iconName);
-					      if (refIcon) {
-					          let refDir = GLib.path_get_dirname(ref.symlinkPath);
-					          context = refIcon.directories.get(refDir) || '';
-					      }
+    // Собираем все физические файлы вкладки (не симлинки)
+    let allPhysical = [];
+    for (let [path, _v] of this.icon.realFiles) {
+        let dir = GLib.path_get_dirname(path);
+        if (tabWidgets.dirs.indexOf(dir) < 0) continue;
+        allPhysical.push(path);
+    }
 
-					      refsStore.set(iter, [0, 1, 2, 3, 4],
-					          [file.path, ref.symlinkPath, ref.iconName, physicalSize, context]);
-					  }
-				}
-		}
-		filesStore.set_sort_column_id(1, Gtk.SortType.ASCENDING);   // Path
-		refsStore.set_sort_column_id(0, Gtk.SortType.ASCENDING);    // Physical file
-	}
+    // Какие сейчас выделены?
+let sel = tabWidgets.filesView.get_selection();
+let model = sel.get_tree_view().get_model();
+let paths = sel.get_selected_rows(null)[0];
+    let selectedPhysical = [];
+    let seen = {};
+    for (let i = 0; i < paths.length; i++) {
+        let iter = model.get_iter(paths[i]);
+        if (!iter) continue;
+        let typeText = model.get_value(iter, 2); // type
+        // Симлинки не могут быть целью ссылки (мы не строим ссылки на симлинки).
+        // Оставляем только физические файлы:
+        if (typeText !== _('file')) continue;
+        let p = model.get_value(iter, 1);
+        if (!seen[p]) { seen[p] = true; selectedPhysical.push(p); }
+    }
+
+    let sourceList = selectedPhysical.length > 0 ? selectedPhysical : allPhysical;
+    sourceList.sort();
+
+    for (let si = 0; si < sourceList.length; si++) {
+        let filePath = sourceList[si];
+        let refs = this.reverseIndex.get(filePath) || [];
+        let physicalSize = this.getSizeOfFile(filePath);
+
+        for (let ri = 0; ri < refs.length; ri++) {
+            let ref = refs[ri];
+            let iter = refsStore.append();
+
+            let context = '';
+            let refIcon = this.app.icons.find(function(i) { return i.name === ref.iconName; });
+            if (refIcon) {
+                let refDir = GLib.path_get_dirname(ref.symlinkPath);
+                context = refIcon.directories.get(refDir) || '';
+            }
+
+            refsStore.set(iter, [0, 1, 2, 3, 4],
+                [filePath, ref.symlinkPath, ref.iconName, physicalSize, context]);
+        }
+    }
+}
 
 	// ==================== ИНДЕКС ОБРАТНЫХ ССЫЛОК ====================
 	buildReverseIndex() {
@@ -961,6 +995,339 @@ filesView.connect('cursor-changed', () => {
 	}
 }
 
+// ==================== КЛАСС RecreateSymlinksDialog ====================
+class RecreateSymlinksDialog {
+    constructor(app) {
+        this.app = app;
+        this.contextItems = [];   // [{label, context, topDir}]
+        this.rows = [];
+
+        this.window = new Gtk.Window({
+            title: _('Recreate Symlinks'),
+            default_width: 900,
+            default_height: 600,
+            transient_for: app.window,
+            modal: true,
+            window_position: Gtk.WindowPosition.CENTER_ON_PARENT
+        });
+
+        this.buildUI();
+        this.window.show_all();
+        this.update();
+    }
+
+    buildUI() {
+        let mainBox = new Gtk.Box({
+            orientation: Gtk.Orientation.VERTICAL,
+            spacing: 6,
+            margin: 8
+        });
+
+        // ------- Форма -------
+        let form = new Gtk.Grid({ row_spacing: 4, column_spacing: 8 });
+
+        form.attach(new Gtk.Label({
+            label: _('Physical (master) name:'),
+            halign: Gtk.Align.START
+        }), 0, 0, 1, 1);
+
+        this.masterEntry = new Gtk.Entry({ hexpand: true });
+        this.masterEntry.connect('changed', () => this.update());
+        form.attach(this.masterEntry, 1, 0, 2, 1);
+
+        form.attach(new Gtk.Label({
+            label: _('Symlink name:'),
+            halign: Gtk.Align.START
+        }), 0, 1, 1, 1);
+
+        this.symlinkEntry = new Gtk.Entry({ hexpand: true });
+        this.symlinkEntry.connect('changed', () => this.update());
+        form.attach(this.symlinkEntry, 1, 1, 2, 1);
+
+        this.sameDirCheck = new Gtk.CheckButton({
+            label: _('In the same directory as master')
+        });
+        this.sameDirCheck.set_active(true);
+        this.sameDirCheck.set_tooltip_text(_(
+            'If checked, each symlink will be created next to the master file of the same size. ' +
+            'If unchecked, choose a different context below.'));
+        this.sameDirCheck.connect('toggled', () => this.update());
+        form.attach(this.sameDirCheck, 0, 2, 3, 1);
+
+        form.attach(new Gtk.Label({
+            label: _('Target context:'),
+            halign: Gtk.Align.START
+        }), 0, 3, 1, 1);
+
+        this.contextCombo = new Gtk.ComboBoxText({ hexpand: true });
+        this.contextCombo.connect('changed', () => this.update());
+        form.attach(this.contextCombo, 1, 3, 2, 1);
+
+        mainBox.pack_start(form, false, false, 0);
+
+        // ------- Превью -------
+        mainBox.pack_start(new Gtk.Label({
+            label: '<b>' + _('Preview') + '</b>',
+            use_markup: true,
+            halign: Gtk.Align.START
+        }), false, false, 0);
+
+        this.store = new Gtk.ListStore();
+        this.store.set_column_types([
+            GObject.TYPE_STRING, // master path
+            GObject.TYPE_STRING, // symlink path
+            GObject.TYPE_STRING  // status
+        ]);
+
+        let view = new Gtk.TreeView({ model: this.store, headers_clickable: true });
+
+        let r1 = new Gtk.CellRendererText(); r1.set_property('ellipsize', 3);
+        let c1 = new Gtk.TreeViewColumn({ title: _('Physical file') });
+        c1.pack_start(r1, true);
+        c1.add_attribute(r1, 'text', 0);
+        c1.set_expand(true);
+        c1.set_resizable(true);
+        c1.set_min_width(240);
+        view.append_column(c1);
+
+        let r2 = new Gtk.CellRendererText(); r2.set_property('ellipsize', 3);
+        let c2 = new Gtk.TreeViewColumn({ title: _('Symlink to create') });
+        c2.pack_start(r2, true);
+        c2.add_attribute(r2, 'text', 1);
+        c2.set_expand(true);
+        c2.set_resizable(true);
+        c2.set_min_width(240);
+        view.append_column(c2);
+
+        let r3 = new Gtk.CellRendererText();
+        let c3 = new Gtk.TreeViewColumn({ title: _('Status') });
+        c3.pack_start(r3, false);
+        c3.add_attribute(r3, 'text', 2);
+        c3.set_min_width(110);
+        view.append_column(c3);
+
+        let scroll = new Gtk.ScrolledWindow();
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
+        scroll.add(view);
+        mainBox.pack_start(scroll, true, true, 0);
+
+        // ------- Кнопки -------
+        let btnBox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, spacing: 5 });
+        btnBox.pack_start(new Gtk.Label({ label: '' }), true, true, 0);
+
+        this.createBtn = new Gtk.Button({ label: _('Create') });
+        this.createBtn.set_sensitive(false);
+        this.createBtn.connect('clicked', () => this.onCreate());
+        btnBox.pack_start(this.createBtn, false, false, 0);
+
+        let cancelBtn = new Gtk.Button({ label: _('Cancel') });
+        cancelBtn.connect('clicked', () => this.window.destroy());
+        btnBox.pack_start(cancelBtn, false, false, 0);
+
+        mainBox.pack_start(btnBox, false, false, 0);
+
+        this.window.add(mainBox);
+        this.populateContexts();
+    }
+
+    populateContexts() {
+        // Собираем context → список верхних компонентов пути
+        let map = new Map();
+        for (let [dirName, info] of this.app.directoryInfo) {
+            if (!info.context) continue;
+            let top = dirName.split('/')[0];
+            if (!map.has(info.context)) map.set(info.context, new Set());
+            map.get(info.context).add(top);
+        }
+
+        let items = [];
+        for (let [context, tops] of map) {
+            if (tops.size === 1) {
+                items.push({ label: context, context: context, topDir: null });
+            } else {
+                let sorted = Array.from(tops).sort();
+                for (let i = 0; i < sorted.length; i++) {
+                    items.push({
+                        label: context + ' (' + sorted[i] + ')',
+                        context: context,
+                        topDir: sorted[i]
+                    });
+                }
+            }
+        }
+        items.sort(function(a, b) { return a.label.localeCompare(b.label); });
+
+        this.contextItems = items;
+        for (let i = 0; i < items.length; i++) {
+            this.contextCombo.append_text(items[i].label);
+        }
+        if (items.length > 0) this.contextCombo.set_active(0);
+    }
+
+    findDirectoryByContextAndSize(context, size, topDir) {
+        let candidates = [];
+        for (let [dirName, info] of this.app.directoryInfo) {
+            if (info.context !== context) continue;
+            if (info.size !== size) continue;
+            if (topDir && dirName.split('/')[0] !== topDir) continue;
+            candidates.push(dirName);
+        }
+        // предпочитаем каталог, чей первый компонент совпадает с context (в нижнем регистре)
+        let ctxLower = context.toLowerCase();
+        for (let i = 0; i < candidates.length; i++) {
+            if (candidates[i].split('/')[0].toLowerCase() === ctxLower) return candidates[i];
+        }
+        return candidates[0] || null;
+    }
+
+    update() {
+        let masterName = this.masterEntry.get_text().trim();
+        let symlinkName = this.symlinkEntry.get_text().trim();
+        let sameDir = this.sameDirCheck.get_active();
+
+        this.contextCombo.set_sensitive(!sameDir);
+
+        let activeIdx = this.contextCombo.get_active();
+        let ctxItem = (activeIdx >= 0 && activeIdx < this.contextItems.length)
+            ? this.contextItems[activeIdx] : null;
+
+        this.rows = [];
+        this.store.clear();
+
+        if (!masterName || !symlinkName) {
+            this.createBtn.set_sensitive(false);
+            return;
+        }
+        if (masterName === symlinkName) {
+            this.createBtn.set_sensitive(false);
+            return;
+        }
+
+        let masterIcon = null;
+        for (let i = 0; i < this.app.icons.length; i++) {
+            if (this.app.icons[i].name === masterName) {
+                masterIcon = this.app.icons[i];
+                break;
+            }
+        }
+        if (!masterIcon) {
+            this.createBtn.set_sensitive(false);
+            return;
+        }
+
+        let entries = [];
+        for (let [relPath, _v] of masterIcon.realFiles) {
+            entries.push(relPath);
+        }
+        entries.sort();
+
+        for (let i = 0; i < entries.length; i++) {
+            let relPath = entries[i];
+            let dirName = GLib.path_get_dirname(relPath);
+            let fileName = GLib.path_get_basename(relPath);
+            let dot = fileName.lastIndexOf('.');
+            if (dot < 0) continue;
+            let ext = fileName.substring(dot);
+
+            let dirInfo = this.app.directoryInfo.get(dirName);
+            if (!dirInfo) continue;
+            let size = dirInfo.size;
+
+            let symlinkDir;
+            if (sameDir) {
+                symlinkDir = dirName;
+            } else {
+                if (!ctxItem) continue;
+                symlinkDir = this.findDirectoryByContextAndSize(
+                    ctxItem.context, size, ctxItem.topDir);
+                if (!symlinkDir) continue;
+            }
+
+            let masterPath  = dirName   + '/' + masterName  + ext;
+            let symlinkPath = symlinkDir + '/' + symlinkName + ext;
+
+            // Статус
+            let status = 'will create';
+            let absSymlink = this.app.themeDir + '/' + symlinkPath;
+            let symlinkFile = Gio.File.new_for_path(absSymlink);
+            if (symlinkFile.query_exists(null)) {
+                try {
+                    let info = symlinkFile.query_info(
+                        'standard::is-symlink,standard::symlink-target',
+                        Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+                    if (info.get_is_symlink()) {
+                        let expected = this.app.relativePath(symlinkDir, masterPath);
+                        let actual = info.get_symlink_target();
+                        status = (actual === expected) ? 'up-to-date' : 'will overwrite';
+                    } else {
+                        status = 'will overwrite file';
+                    }
+                } catch (e) {
+                    status = 'exists';
+                }
+            }
+
+            this.rows.push({
+                masterPath: masterPath,
+                symlinkPath: symlinkPath,
+                symlinkDir: symlinkDir,
+                ext: ext,
+                size: size
+            });
+
+            let iter = this.store.append();
+            this.store.set(iter, [0, 1, 2], [masterPath, symlinkPath, status]);
+        }
+
+        this.createBtn.set_sensitive(this.rows.length > 0);
+    }
+
+    onCreate() {
+        if (this.rows.length === 0) return;
+
+        let errors = [];
+        let created = 0;
+
+        for (let i = 0; i < this.rows.length; i++) {
+            let row = this.rows[i];
+            try {
+                let absSymlink = this.app.themeDir + '/' + row.symlinkPath;
+                let symlinkFile = Gio.File.new_for_path(absSymlink);
+
+                if (symlinkFile.query_exists(null)) {
+                    symlinkFile.delete(null);
+                }
+
+                let relTarget = this.app.relativePath(row.symlinkDir, row.masterPath);
+                symlinkFile.make_symbolic_link(relTarget, null);
+                created++;
+            } catch (e) {
+                errors.push(row.symlinkPath + ': ' + e.message);
+            }
+        }
+
+        this.app.scanIcons();
+        this.app.setStatus(formatString(_('Created %d symlink(s)'), created));
+
+        if (errors.length > 0) {
+            let dialog = new Gtk.MessageDialog({
+                transient_for: this.window,
+                modal: true,
+                message_type: Gtk.MessageType.WARNING,
+                buttons: Gtk.ButtonsType.OK,
+                text: formatString(_('Created %d symlink(s) with %d error(s)'),
+                                   created, errors.length),
+                secondary_text: errors.join('\n')
+            });
+            dialog.run();
+            dialog.destroy();
+        } else {
+            this.window.destroy();
+        }
+    }
+}
+
+
 // ==================== КЛАСС ICONTHEMEEDITOR ====================
 class IconThemeEditor {
 	constructor(themePath) {
@@ -1029,6 +1396,70 @@ class IconThemeEditor {
 		  return result;
 	}
 
+	// ==================== ПОЛУЧАЕМ ВЫБРАННЫЕ СТРОКИ В ФАЙЛАХ ====================
+
+getSelectedFileRows() {
+    let result = [];
+    let [paths, model] = this.filesTreeView.get_selection().get_selected_rows();
+    for (let i = 0; i < paths.length; i++) {
+        let iter = model.get_iter(paths[i]);
+        if (!iter) continue;
+        result.push({
+            path: model.get_value(iter, 0),
+            target: model.get_value(iter, 1)
+        });
+    }
+    return result;
+}
+
+isFileRow(/* row */) {
+    return false;
+}
+
+updateFileButtonsState() {
+    if (!this.currentIcon) {
+        this.deleteButton.set_sensitive(false);
+        this.convertToSymlinkButton.set_sensitive(false);
+        return;
+    }
+
+    let rows = this.getSelectedFileRows();
+    if (rows.length === 0) {
+        this.deleteButton.set_sensitive(false);
+        this.convertToSymlinkButton.set_sensitive(false);
+        return;
+    }
+
+    this.deleteButton.set_sensitive(true);
+
+    let fileLabel = '(' + _('file') + ')';
+    let symlinkCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+        if (rows[i].target !== '' && rows[i].target !== fileLabel) symlinkCount++;
+    }
+
+    if (rows.length === 1) {
+        this.convertToSymlinkButton.set_sensitive(true);
+        // label выставляет onFileSelected
+    } else if (symlinkCount === rows.length) {
+        this.convertToSymlinkButton.set_sensitive(true);
+        this.convertToSymlinkButton.set_label(_('Symlinks → Files'));
+    } else {
+        this.convertToSymlinkButton.set_sensitive(false);
+        this.convertToSymlinkButton.set_label(_('File ↔ Symlink'));
+    }
+}
+
+relativePath(fromDir, toPath) {
+    let from = fromDir.split('/').filter(Boolean);
+    let to = toPath.split('/').filter(Boolean);
+    let common = 0;
+    while (common < from.length && common < to.length - 1
+           && from[common] === to[common]) common++;
+    let up = new Array(from.length - common).fill('..');
+    return up.concat(to.slice(common)).join('/');
+}
+
 	// ==================== СОЗДАНИЕ ИНТЕРФЕЙСА ====================
 	createUI() {
 		this.window = new Gtk.Window({
@@ -1054,6 +1485,15 @@ class IconThemeEditor {
 		this.refreshButton = new Gtk.Button({ label: _('Refresh') });
 		this.refreshButton.connect('clicked', () => this.loadTheme());
 		topBox.pack_start(this.refreshButton, false, false, 0);
+
+		let recreateBtn = new Gtk.Button({ label: _('Recreate Symlinks...') });
+		recreateBtn.set_tooltip_text(_(
+				'Create symlinks in all sizes of one icon name, pointing to the ' +
+				'same-size physical files of another icon name.'));
+		recreateBtn.connect('clicked', () => {
+				new RecreateSymlinksDialog(this);
+		});
+		topBox.pack_start(recreateBtn, false, false, 0);
 
 		let filterBox = new Gtk.Box({
 			orientation: Gtk.Orientation.HORIZONTAL,
@@ -1259,6 +1699,8 @@ class IconThemeEditor {
 		this.filesTreeView = new Gtk.TreeView({
 			model: this.filesListStore
 		});
+		this.filesTreeView.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
+		this.filesTreeView.get_selection().connect('changed', () => this.updateFileButtonsState());
 
 		let filePathRenderer = new Gtk.CellRendererText();
 		let filePathColumn = new Gtk.TreeViewColumn({ title: _('File') });
@@ -1948,8 +2390,6 @@ scanIcons() {
 		this.symlinkHasChanges = false;
 
 		this.previewButton.set_sensitive(true);
-		this.deleteButton.set_sensitive(true);
-		this.convertToSymlinkButton.set_sensitive(true);
 
 		if (isSymlink) {
 			this.convertToSymlinkButton.set_label(_('Symlink → File'));
@@ -1981,6 +2421,7 @@ scanIcons() {
 
 		this.loadFilePreview(this.themeDir + '/' + filePath);
 		this.loadPreview(dir, this.currentIcon.name);
+		this.updateFileButtonsState();
 	}
 
 	// ==================== ДВОЙНОЙ КЛИК ПО ФАЙЛУ (в правом списке) ====================
@@ -2075,15 +2516,90 @@ scanIcons() {
 	}
 
 	// ==================== ПРЕОБРАЗОВАНИЕ ФАЙЛА/СИМЛИНКА ====================
-	convertToSymlink() {
-		if (!this.currentSelectedFile || !this.currentIcon) return;
+convertToSymlink() {
+    let rows = this.getSelectedFileRows();
+    if (rows.length === 0) return;
 
-		if (this.currentSelectedIsSymlink) {
-			this.convertToFile();
-		} else {
-			this.convertSymlinkToFile();
-		}
-	}
+    let fileLabel = '(' + _('file') + ')';
+
+    if (rows.length === 1) {
+        if (rows[0].target !== '' && rows[0].target !== fileLabel) {
+            this.convertToFile();
+        } else {
+            this.convertSymlinkToFile();
+        }
+        return;
+    }
+
+    // многозаходный режим — только symlinks → files
+    let allSymlinks = true;
+    for (let i = 0; i < rows.length; i++) {
+        if (rows[i].target === '' || rows[i].target === fileLabel) {
+            allSymlinks = false;
+            break;
+        }
+    }
+    if (!allSymlinks) return;
+
+    let paths = rows.map(function(r) { return r.path; });
+    this.convertSymlinksToFiles(paths);
+}
+
+convertSymlinksToFiles(paths) {
+    let dialog = new Gtk.MessageDialog({
+        transient_for: this.window,
+        modal: true,
+        message_type: Gtk.MessageType.QUESTION,
+        buttons: Gtk.ButtonsType.YES_NO,
+        text: formatString(_('Convert %d symlink(s) to files?'), paths.length),
+        secondary_text: _('Each symlink will be replaced with a copy of its target file.')
+    });
+
+    if (dialog.run() === Gtk.ResponseType.YES) {
+        let errors = [];
+        let converted = 0;
+
+        for (let i = 0; i < paths.length; i++) {
+            let p = paths[i];
+            try {
+                let symlinkPath = this.themeDir + '/' + p;
+                let symlinkFile = Gio.File.new_for_path(symlinkPath);
+                let target = this.currentIcon.symlinks.get(p);
+                if (!target) {
+                    errors.push(p + ': no target');
+                    continue;
+                }
+
+                let symlinkDir = symlinkFile.get_parent();
+                let targetFile = symlinkDir.resolve_relative_path(target);
+                if (!targetFile.query_exists(null)) {
+                    errors.push(p + ': target missing');
+                    continue;
+                }
+
+                targetFile.copy(symlinkFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                this.currentIcon.symlinks.delete(p);
+                this.currentIcon.realFiles.set(p, true);
+                converted++;
+            } catch (e) {
+                errors.push(p + ': ' + e.message);
+            }
+        }
+
+        this.currentIcon.hasSymlinks = this.currentIcon.symlinks.size > 0;
+        this.currentIcon.symlinkOnly =
+            this.currentIcon.realFiles.size === 0 && this.currentIcon.symlinks.size > 0;
+
+        this.updateFilesList();
+        this.updateListDisplay();
+        this.setStatus(formatString(_('Converted %d symlink(s) to file(s)'), converted));
+        this.setWindowModified(true);
+
+        if (errors.length > 0) this.showError(errors.join('\n'));
+    }
+
+    dialog.destroy();
+}
 
 	convertSymlinkToFile() {
 		if (!this.currentSelectedFile || !this.currentIcon) return;
@@ -2424,57 +2940,82 @@ scanIcons() {
 	}
 
 	// ==================== УДАЛЕНИЕ ФАЙЛА ИЗОБРАЖЕНИЯ ====================
-	deleteImageFile() {
-		if (!this.currentSelectedFile || !this.currentIcon) return;
+deleteImageFile() {
+    let rows = this.getSelectedFileRows();
+    if (rows.length === 0) return;
 
-		let fileType = this.currentSelectedIsSymlink ? _('symlink') : _('file');
-		let dialog = new Gtk.MessageDialog({
-			transient_for: this.window,
-			modal: true,
-			message_type: Gtk.MessageType.QUESTION,
-			buttons: Gtk.ButtonsType.YES_NO,
-			text: formatString(_('Delete %s?'), fileType),
-			secondary_text: formatString(_('Will delete %s "%s". This cannot be undone.'), fileType, this.currentSelectedFile)
-		});
+    let fileLabel = '(' + _('file') + ')';
+    let symlinkCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+        if (rows[i].target !== '' && rows[i].target !== fileLabel) symlinkCount++;
+    }
+    let fileCount = rows.length - symlinkCount;
 
-		if (dialog.run() === Gtk.ResponseType.YES) {
-			try {
-				let fullPath = this.themeDir + '/' + this.currentSelectedFile;
-				let file = Gio.File.new_for_path(fullPath);
+    let text, secondary;
+    if (rows.length === 1) {
+        let fileType = symlinkCount === 1 ? _('symlink') : _('file');
+        text = formatString(_('Delete %s?'), fileType);
+        secondary = formatString(_('Will delete %s "%s". This cannot be undone.'),
+                                 fileType, rows[0].path);
+    } else {
+        text = formatString(_('Delete %d items?'), rows.length);
+        secondary = symlinkCount + ' symlink(s), ' + fileCount + ' file(s)';
+    }
 
-				if (file.query_exists(null)) {
-					file.delete(null);
+    let dialog = new Gtk.MessageDialog({
+        transient_for: this.window,
+        modal: true,
+        message_type: Gtk.MessageType.QUESTION,
+        buttons: Gtk.ButtonsType.YES_NO,
+        text: text,
+        secondary_text: secondary
+    });
 
-					if (this.currentSelectedIsSymlink) {
-						this.currentIcon.symlinks.delete(this.currentSelectedFile);
-						this.currentIcon.hasSymlinks = this.currentIcon.symlinks.size > 0;
-					} else {
-						this.currentIcon.realFiles.delete(this.currentSelectedFile);
-					}
+    if (dialog.run() === Gtk.ResponseType.YES) {
+        let errors = [];
+        let deleted = 0;
 
-					this.currentIcon.symlinkOnly = this.currentIcon.realFiles.size === 0 && this.currentIcon.symlinks.size > 0;
+        for (let i = 0; i < rows.length; i++) {
+            let row = rows[i];
+            try {
+                let fullPath = this.themeDir + '/' + row.path;
+                let file = Gio.File.new_for_path(fullPath);
+                if (!file.query_exists(null)) {
+                    errors.push(row.path + ': does not exist');
+                    continue;
+                }
+                file.delete(null);
 
-					this.updateFilesList();
+                let isSymlink = row.target !== '' && row.target !== fileLabel;
+                if (isSymlink) {
+                    this.currentIcon.symlinks.delete(row.path);
+                } else {
+                    this.currentIcon.realFiles.delete(row.path);
+                }
+                deleted++;
+            } catch (e) {
+                errors.push(row.path + ': ' + e.message);
+            }
+        }
 
-					this.previewImage.set_from_pixbuf(null);
-					this.previewButton.set_sensitive(false);
-					this.deleteButton.set_sensitive(false);
-					this.convertToSymlinkButton.set_sensitive(false);
+        this.currentIcon.hasSymlinks = this.currentIcon.symlinks.size > 0;
+        this.currentIcon.symlinkOnly =
+            this.currentIcon.realFiles.size === 0 && this.currentIcon.symlinks.size > 0;
 
-					this.updateListDisplay();
+        this.updateFilesList();
+        this.updateListDisplay();
 
-					this.setStatus(formatString(_('Deleted %s: %s'), fileType, this.currentSelectedFile));
-					this.setWindowModified(true);
-				} else {
-					this.showError(_('File does not exist'));
-				}
-			} catch (e) {
-				this.showError(_('Error deleting file') + ': ' + e.message);
-			}
-		}
+        this.previewImage.set_from_pixbuf(null);
+        this.previewButton.set_sensitive(false);
 
-		dialog.destroy();
-	}
+        this.setStatus(formatString(_('Deleted %d item(s)'), deleted));
+        this.setWindowModified(true);
+
+        if (errors.length > 0) this.showError(errors.join('\n'));
+    }
+
+    dialog.destroy();
+}
 
 	// ==================== ПРОВЕРКА ЦЕЛИ СИМЛИНКА ====================
 	onSymlinkTargetChanged() {

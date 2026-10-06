@@ -423,3 +423,96 @@ msgstr "Размер"
 
 msgid "Type"
 msgstr "Тип"
+
+msgid "Recreate Symlinks..."
+msgstr "Пересоздать симлинки..."
+
+msgid "Recreate Symlinks"
+msgstr "Пересоздание симлинков"
+
+msgid "Physical (master) name:"
+msgstr "Имя физического (мастер) файла:"
+
+msgid "Symlink name:"
+msgstr "Имя симлинка:"
+
+msgid "In the same directory as master"
+msgstr "В том же каталоге, что мастер"
+
+msgid "If checked, each symlink will be created next to the master file of the same size. If unchecked, choose a different context below."
+msgstr "Если включено, каждый симлинк создаётся рядом с мастер-файлом того же размера. Если выключено, выберите контекст ниже."
+
+msgid "Target context:"
+msgstr "Целевой контекст:"
+
+msgid "Preview"
+msgstr "Предпросмотр"
+
+msgid "Symlink to create"
+msgstr "Создаваемый симлинк"
+
+msgid "will create"
+msgstr "будет создан"
+
+msgid "will overwrite"
+msgstr "будет перезаписан"
+
+msgid "will overwrite file"
+msgstr "заменит файл"
+
+msgid "up-to-date"
+msgstr "уже актуален"
+
+msgid "exists"
+msgstr "существует"
+
+msgid "Create"
+msgstr "Создать"
+
+msgid "Created %d symlink(s)"
+msgstr "Создано симлинков: %d"
+
+msgid "Created %d symlink(s) with %d error(s)"
+msgstr "Создано симлинков: %d, ошибок: %d"
+
+msgid "Delete %d items?"
+msgstr "Удалить элементов: %d?"
+
+msgid "Convert %d symlink(s) to files?"
+msgstr "Преобразовать симлинков в файлы: %d?"
+
+msgid "Converted %d symlink(s) to file(s)"
+msgstr "Преобразовано симлинков в файлы: %d"
+
+msgid "Deleted %d item(s)"
+msgstr "Удалено элементов: %d"
+
+msgid "Symlinks → Files"
+msgstr "Симлинки → Файлы"
+
+msgid "Icons that reference this icon"
+msgstr "Значки, ссылающиеся на этот"
+
+msgid "Every icon name in the theme that has symlinks pointing to the physical files of this icon. Red = different targets or physical files mixed in; orange = not covering all sizes of this icon."
+msgstr "Все имена значков в теме, симлинки которых указывают на физические файлы этого значка. Красный — разные цели или присутствуют физические файлы; оранжевый — покрыты не все размеры этого значка."
+
+msgid "Sizes"
+msgstr "Размеры"
+
+msgid "Targets"
+msgstr "Цели"
+
+msgid "Different targets"
+msgstr "Разные цели"
+
+msgid "Physical file in: %s"
+msgstr "Физический файл в: %s"
+
+msgid "Missing sizes: %s"
+msgstr "Отсутствуют размеры: %s"
+
+msgid "All symlinks across the whole theme that point to physical files listed on the left. If any rows are selected on the left, only symlinks pointing to those rows are shown."
+msgstr "Все симлинки во всей теме, указывающие на физические файлы слева. Если слева что-то выделено, показываются только симлинки, указывающие на выделенные строки."
+
+msgid "Physical files and symlinks of this icon in directories belonging to the selected context. Ctrl+click for multi-select."
+msgstr "Физические файлы и симлинки этого значка в каталогах выбранного контекста. Ctrl+клик — множественный выбор."
