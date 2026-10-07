@@ -502,12 +502,48 @@ buildTab(context, dirs) {
     };
 
     // Обработчик выделения в filesView — перезаполняет refsStore
-    filesView.get_selection().connect('changed', () => {
-        this.updateRefsFromSelection(tabWidgets);
+filesView.get_selection().connect('changed', () => {
+    // 1. Обновляем правую таблицу
+    this.updateRefsFromSelection(tabWidgets);
+
+    // 2. Обновляем превью в шапке окна — по первой выделенной строке
+    if (!this.headerImage) return;
+
+    let firstPath = null;
+    filesView.get_selection().selected_foreach((model, path, iter) => {
+        if (firstPath === null) firstPath = model.get_value(iter, 1);
     });
 
-    this.populateTab(tabWidgets);
-    return tabWidgets;
+    if (!firstPath) {
+        this.headerImage.set_from_pixbuf(null);
+        return;
+    }
+    let pix = this.loadPreviewPixbuf(this.themeDir + '/' + firstPath, 64);
+    this.headerImage.set_from_pixbuf(pix);
+});
+
+
+// Превью в шапке окна — по курсору (последней кликнутой строке)
+filesView.connect('cursor-changed', () => {
+    let cursor = filesView.get_cursor();
+    let cursorPath = cursor[0];
+    if (!cursorPath) {
+        this.headerImage.set_from_pixbuf(null);
+        return;
+    }
+    let iter = filesStore.get_iter(cursorPath);
+    if (!iter) {
+        this.headerImage.set_from_pixbuf(null);
+        return;
+    }
+    let p = filesStore.get_value(iter, 1);
+    let abs = this.themeDir + '/' + p;
+    let pix = this.loadPreviewPixbuf(abs, 64);
+    this.headerImage.set_from_pixbuf(pix);
+});
+
+this.populateTab(tabWidgets);
+return tabWidgets;
 }
 
 	// ==================== ЗАПОЛНЕНИЕ ВКЛАДКИ ====================
@@ -569,21 +605,14 @@ updateRefsFromSelection(tabWidgets) {
     }
 
     // Какие сейчас выделены?
-let sel = tabWidgets.filesView.get_selection();
-let model = sel.get_tree_view().get_model();
-let paths = sel.get_selected_rows(null)[0];
-    let selectedPhysical = [];
-    let seen = {};
-    for (let i = 0; i < paths.length; i++) {
-        let iter = model.get_iter(paths[i]);
-        if (!iter) continue;
-        let typeText = model.get_value(iter, 2); // type
-        // Симлинки не могут быть целью ссылки (мы не строим ссылки на симлинки).
-        // Оставляем только физические файлы:
-        if (typeText !== _('file')) continue;
-        let p = model.get_value(iter, 1);
-        if (!seen[p]) { seen[p] = true; selectedPhysical.push(p); }
-    }
+let selectedPhysical = [];
+let seen = {};
+tabWidgets.filesView.get_selection().selected_foreach((model, path, iter) => {
+    let typeText = model.get_value(iter, 2);
+    if (typeText !== _('file')) return;
+    let p = model.get_value(iter, 1);
+    if (!seen[p]) { seen[p] = true; selectedPhysical.push(p); }
+});
 
     let sourceList = selectedPhysical.length > 0 ? selectedPhysical : allPhysical;
     sourceList.sort();
@@ -1400,15 +1429,13 @@ class IconThemeEditor {
 
 getSelectedFileRows() {
     let result = [];
-    let [paths, model] = this.filesTreeView.get_selection().get_selected_rows();
-    for (let i = 0; i < paths.length; i++) {
-        let iter = model.get_iter(paths[i]);
-        if (!iter) continue;
+    let sel = this.filesTreeView.get_selection();
+    sel.selected_foreach((model, path, iter) => {
         result.push({
             path: model.get_value(iter, 0),
             target: model.get_value(iter, 1)
         });
-    }
+    });
     return result;
 }
 
@@ -2375,54 +2402,62 @@ scanIcons() {
 	}
 
 	// ==================== ВЫБОР ФАЙЛА ====================
-	onFileSelected() {
-		if (this.isUpdating) return;
+onFileSelected() {
+    if (this.isUpdating) return;
+    if (!this.currentIcon) return;
 
-		let [success, model, iter] = this.filesTreeView.get_selection().get_selected();
-		if (!success || !iter || !this.currentIcon) return;
+    let filePath = null;
+    let target = null;
 
-		let filePath = model.get_value(iter, 0);
-		let target = model.get_value(iter, 1);
-		let isSymlink = target !== '' && target !== '(' + _('file') + ')';
+    this.filesTreeView.get_selection().selected_foreach((model, path, iter) => {
+        if (filePath === null) {
+            filePath = model.get_value(iter, 0);
+            target   = model.get_value(iter, 1);
+        }
+    });
 
-		this.currentSelectedFile = filePath;
-		this.currentSelectedIsSymlink = isSymlink;
-		this.symlinkHasChanges = false;
+    if (filePath === null) return;
 
-		this.previewButton.set_sensitive(true);
+    let isSymlink = target !== '' && target !== '(' + _('file') + ')';
 
-		if (isSymlink) {
-			this.convertToSymlinkButton.set_label(_('Symlink → File'));
-			this.currentSymlink = filePath;
-			this.symlinkOriginalTarget = target;
+    this.currentSelectedFile = filePath;
+    this.currentSelectedIsSymlink = isSymlink;
+    this.symlinkHasChanges = false;
 
-			this.symlinkTargetEntry.set_text(target);
-			this.symlinkTargetEntry.set_sensitive(true);
-			this.symlinkResetButton.set_sensitive(true);
-			this.symlinkSaveButton.set_sensitive(false);
+    this.previewButton.set_sensitive(true);
 
-			this.checkSymlinkTarget(target);
-		} else {
-			this.convertToSymlinkButton.set_label(_('File → Symlink'));
-			this.currentSymlink = null;
-			this.symlinkOriginalTarget = null;
+    if (isSymlink) {
+        this.convertToSymlinkButton.set_label(_('Symlink → File'));
+        this.currentSymlink = filePath;
+        this.symlinkOriginalTarget = target;
 
-			this.symlinkTargetEntry.set_text('');
-			this.symlinkTargetEntry.set_sensitive(false);
-			this.symlinkResetButton.set_sensitive(false);
-			this.symlinkSaveButton.set_sensitive(false);
-			this.symlinkStatusIcon.set_from_pixbuf(null);
-			this.symlinkStatusIcon.set_tooltip_text('');
-		}
+        this.symlinkTargetEntry.set_text(target);
+        this.symlinkTargetEntry.set_sensitive(true);
+        this.symlinkResetButton.set_sensitive(true);
+        this.symlinkSaveButton.set_sensitive(false);
 
-		let parts = filePath.split('/');
-		let dir = parts[0];
-		this.currentPreviewDir = dir;
+        this.checkSymlinkTarget(target);
+    } else {
+        this.convertToSymlinkButton.set_label(_('File → Symlink'));
+        this.currentSymlink = null;
+        this.symlinkOriginalTarget = null;
 
-		this.loadFilePreview(this.themeDir + '/' + filePath);
-		this.loadPreview(dir, this.currentIcon.name);
-		this.updateFileButtonsState();
-	}
+        this.symlinkTargetEntry.set_text('');
+        this.symlinkTargetEntry.set_sensitive(false);
+        this.symlinkResetButton.set_sensitive(false);
+        this.symlinkSaveButton.set_sensitive(false);
+        this.symlinkStatusIcon.set_from_pixbuf(null);
+        this.symlinkStatusIcon.set_tooltip_text('');
+    }
+
+    let parts = filePath.split('/');
+    let dir = parts[0];
+    this.currentPreviewDir = dir;
+
+    this.loadFilePreview(this.themeDir + '/' + filePath);
+    this.loadPreview(dir, this.currentIcon.name);
+    this.updateFileButtonsState();
+}
 
 	// ==================== ДВОЙНОЙ КЛИК ПО ФАЙЛУ (в правом списке) ====================
 	onFileActivated(treeView, path, column) {

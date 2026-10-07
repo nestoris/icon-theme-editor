@@ -16,7 +16,7 @@ gjs icon-theme-editor.js /path/to/your/theme/index.theme
 
 **Requirements:**
 ```
-GTK3, GJS or CJS (may use modern GJS 1.88.1, or old version of CJS 128.1)
+GTK3, GJS or CJS (may use modern GJS 1.88, or old version of CJS 128.1)
 ```
 
 **Screenshots:**
@@ -31,4 +31,8 @@ Main window:
 
 Properties of double-clicked icon name:
 
-![props.png](props.png)
+![screen2.png](screen2.png)
+
+Error of multiple contexts:
+
+![screen3.png](screen3.png)
